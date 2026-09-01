@@ -89,7 +89,9 @@ function AuthScreen({ onLoggedIn }) {
   return (
     <div className="auth-wrap">
       <div className="auth-card">
-        <h1>Wheat2Wealth</h1>
+        <h1 style={{ display: 'flex', justifyContent: 'center' }}>
+          <img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 218.117, height: 76, display: 'block' }} />
+        </h1>
         <p>
           Connecte-toi ou crée un compte avec un pseudo et un mot de passe. Ta ferme est liée à ce
           compte, accessible depuis n&rsquo;importe quel appareil.
@@ -710,47 +712,20 @@ function Game({ username, onLoggedOut }) {
         )}
 
         <div className="ledger panel-col-left">
-          <div className="ledger-section">
-            <h2>Parcelles</h2>
+          <Section title="Parcelles">
             <div className="row"><span>Prochaine parcelle</span><span>{nextPlotCost} p</span></div>
             <div className="row"><span>Semer une parcelle libre</span><span>{SEED_COST} p</span></div>
             <div className="row muted"><span>Temps de pousse</span><span>{growTimeSeconds(state).toFixed(1)} s</span></div>
-          </div>
+          </Section>
           <hr />
-          <div className="ledger-section">
-            <h2>Exploitation</h2>
-            <div className="row"><span>Génération</span><span>{state.generation}</span></div>
-            <div className="row"><span>Taille du terrain</span><span>{state.farmCols} × {state.farmRows}</span></div>
-            <button
-              className={`full-btn ${sellFarmArmed ? 'armed' : ''}`}
-              disabled={state.gamePhase !== 'playing'}
-              onClick={handleSellFarm}
-              style={sellFarmArmed ? { background: 'var(--alert)', color: '#fff' } : undefined}
-            >
-              {sellFarmArmed
-                ? `Confirmer la vente ? (${computeResaleValue(state)}p)`
-                : `Revente de l'exploitation (${computeResaleValue(state)}p)`}
-            </button>
-          </div>
-          <hr />
-          <div className="ledger-section">
-            <h2>Silo</h2>
+          <Section title="Silo">
             <div className="row"><span>Blé stocké</span><span>{state.wheat} / {siloCap(state)}</span></div>
             <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
             <button
-              className="full-btn"
+              className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''}`}
               disabled={state.wheat <= 0}
               onClick={sell}
-              style={{
-                backgroundImage: `url(${state.wheat > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})`,
-                backgroundSize: '100% 100%',
-                backgroundColor: 'transparent',
-                border: 'none',
-                height: 56,
-                fontFamily: "'Courier New', monospace",
-                fontWeight: state.wheat > 0 ? 700 : 600,
-                color: state.wheat > 0 ? '#2B1D0C' : '#736f60',
-              }}
+              style={{ backgroundImage: `url(${state.wheat > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})` }}
             >
               VENTE À LA CRIÉE {Math.round(state.wheat * SELL_PRICE)}p
             </button>
@@ -772,10 +747,9 @@ function Game({ username, onLoggedOut }) {
                 </button>
               </div>
             )}
-          </div>
+          </Section>
           <hr />
-          <div className="ledger-section">
-            <h2>Efficacité de la ferme</h2>
+          <Section title="Efficacité de la ferme">
             <div className="stat-grid">
               <div className="stat-card">
                 <div className="stat-label">Parcelles en exploitation</div>
@@ -798,21 +772,34 @@ function Game({ username, onLoggedOut }) {
                 </div>
               </div>
             </div>
-          </div>
+          </Section>
           <hr />
-          <div className="ledger-section">
-            <h2>Registre</h2>
+          <Section title="Exploitation">
+            <div className="row"><span>Génération</span><span>{state.generation}</span></div>
+            <div className="row"><span>Taille du terrain</span><span>{state.farmCols} × {state.farmRows}</span></div>
+            <button
+              className={`full-btn ${sellFarmArmed ? 'armed' : ''}`}
+              disabled={state.gamePhase !== 'playing'}
+              onClick={handleSellFarm}
+              style={sellFarmArmed ? { background: 'var(--alert)', color: '#fff' } : undefined}
+            >
+              {sellFarmArmed
+                ? `Confirmer la vente ? (${computeResaleValue(state)}p)`
+                : `Revente de l'exploitation (${computeResaleValue(state)}p)`}
+            </button>
+          </Section>
+          <hr />
+          <Section title="Registre" defaultCollapsed>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 110, overflowY: 'auto' }}>
               {log.map((m, i) => (
                 <li key={i} style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', padding: '3px 0' }}>{m}</li>
               ))}
             </ul>
-          </div>
+          </Section>
         </div>
 
         <div className="ledger panel-col-right">
-          <div className="ledger-section">
-            <h2>Investissements</h2>
+          <Section title="Investissements">
             {Object.keys(UPGRADE_DEFS).map((key) => {
               const def = UPGRADE_DEFS[key];
               const u = state.upgrades[key];
@@ -862,10 +849,9 @@ function Game({ username, onLoggedOut }) {
                 </div>
               );
             })}
-          </div>
+          </Section>
           <hr />
-          <div className="ledger-section">
-            <h2>Statistiques</h2>
+          <Section title="Statistiques" defaultCollapsed>
             <p className="field-caption" style={{ color: 'var(--ink-soft)' }}>
               Les chiffres bruts pour optimiser ta stratégie — tout ce qui compte pour battre les
               autres joueurs à temps de jeu égal.
@@ -928,10 +914,9 @@ function Game({ username, onLoggedOut }) {
                 </div>
               </div>
             </div>
-          </div>
+          </Section>
           <hr />
-          <div className="ledger-section">
-            <h2>Classement</h2>
+          <Section title="Classement" defaultCollapsed>
             <ul className="leaderboard">
               {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
               {leaderboard.map((entry, idx) => (
@@ -942,10 +927,34 @@ function Game({ username, onLoggedOut }) {
               ))}
             </ul>
             <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
-          </div>
+          </Section>
         </div>
       </div>
     </>
+  );
+}
+
+function Section({ title, defaultCollapsed = false, children }) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  return (
+    <div className="ledger-section">
+      <h2
+        onClick={() => setCollapsed((c) => !c)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <span>{title}</span>
+        <span
+          style={{
+            fontSize: '0.85rem', color: 'var(--ink-soft)', fontFamily: "'Courier New', monospace",
+            display: 'inline-block', transition: 'transform 0.2s ease',
+            transform: collapsed ? 'rotate(-90deg)' : 'none',
+          }}
+        >
+          ▾
+        </span>
+      </h2>
+      {!collapsed && children}
+    </div>
   );
 }
 
@@ -994,17 +1003,15 @@ function ModeToggle({ label, value, onChange, combineLabel, combineIcon }) {
       <span style={{ minWidth: 112, display: 'inline-block' }}>{label}</span>
       <div style={{ display: 'flex', gap: 6 }}>
         <button
+          className={`mode-btn ${value === 'manual' ? 'active' : ''}`}
           onClick={() => onChange('manual')}
-          style={value === 'manual' ? { background: 'var(--gold)', color: 'var(--ink)' } : undefined}
         >
           À la main
         </button>
         <button
+          className={`mode-btn ${value === 'combine' ? 'active' : ''}`}
           onClick={() => onChange('combine')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            ...(value === 'combine' ? { background: 'var(--gold)', color: 'var(--ink)' } : {}),
-          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
         >
           {combineIcon && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1019,20 +1026,13 @@ function ModeToggle({ label, value, onChange, combineLabel, combineIcon }) {
 
 function InvestButton({ maxed, afford, cost, onClick }) {
   const sprite = maxed ? '/sprites/btn-max.webp' : afford ? '/sprites/btn-on.webp' : '/sprites/btn-off.webp';
-  const color = maxed ? 'var(--ink)' : afford ? 'var(--paper)' : '#5a584f';
+  const cls = maxed ? 'maxed' : afford ? 'on' : 'off';
   return (
     <button
-      className="full-btn"
+      className={`full-btn invest-btn ${cls}`}
       disabled={maxed}
       onClick={onClick}
-      style={{
-        backgroundImage: `url(${sprite})`,
-        backgroundSize: '100% 100%',
-        backgroundColor: 'transparent',
-        border: 'none',
-        color,
-        fontWeight: maxed ? 700 : 600,
-      }}
+      style={{ backgroundImage: `url(${sprite})` }}
     >
       {maxed ? 'Investissement maximal' : `Investir — ${cost}p`}
     </button>
