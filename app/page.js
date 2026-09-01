@@ -29,6 +29,7 @@ import {
   choiceTierCost,
   harvesterSprite,
   seederSprite,
+  formatDuration,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -227,6 +228,14 @@ function Game({ username, onLoggedOut }) {
     refreshLeaderboard();
   }, [refreshLeaderboard]);
 
+  // Purely visual re-render trigger: playtime and the live p/s indicator
+  // change every second even when nothing in `state` itself changes.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // Growth tick + automation (ouvrier agricole / semeur automatique).
   const harvestCursorRef = useRef(-1);
   const sowCursorRef = useRef(-1);
@@ -242,7 +251,13 @@ function Game({ username, onLoggedOut }) {
         let wheat = prev.wheat;
         let money = prev.money;
         let changed = false;
-        let logMsg = null;
+        let statHarvested = 0;
+        let statLost = 0;
+        let statSpent = 0;
+        let statEarned = 0;
+        let statSold = 0;
+        let statSales = 0;
+        let newSale = null;
 
         const mapped = plots.map((p) => {
           if (p.state === 'growing' && Date.now() - p.plantedAt >= gt) {
@@ -266,6 +281,8 @@ function Game({ username, onLoggedOut }) {
               if (plots === prev.plots) plots = plots.slice();
               plots[idx] = { state: 'empty', plantedAt: null };
               wheat += added;
+              statHarvested += added;
+              statLost += amount - added;
               harvestCursorRef.current = idx;
               changed = true;
             }
@@ -282,6 +299,7 @@ function Game({ username, onLoggedOut }) {
               if (plots === prev.plots) plots = plots.slice();
               plots[idx] = { state: 'growing', plantedAt: Date.now() };
               money -= SEED_COST;
+              statSpent += SEED_COST;
               sowCursorRef.current = idx;
               changed = true;
               dirtyRef.current = true;
@@ -297,6 +315,10 @@ function Game({ username, onLoggedOut }) {
             const tax = courtierTax(prev);
             const total = Math.round(gross * (1 - tax));
             pushLog(`Vente automatique (courtier) de ${wheat} unités de blé pour ${total}p (taxe ${Math.round(tax * 100)}%).`);
+            statEarned += total;
+            statSold += wheat;
+            statSales += 1;
+            newSale = { t: Date.now(), amount: total };
             money += total;
             wheat = 0;
             changed = true;
@@ -305,7 +327,15 @@ function Game({ username, onLoggedOut }) {
         }
 
         if (!changed) return prev;
-        return { ...prev, plots, wheat, money };
+        const stats = { ...prev.stats };
+        stats.totalWheatHarvested += statHarvested;
+        stats.totalWheatLost += statLost;
+        stats.totalSpent += statSpent;
+        stats.totalEarned += statEarned;
+        stats.totalWheatSold += statSold;
+        stats.salesCount += statSales;
+        if (newSale) stats.recentSales = [...stats.recentSales, newSale];
+        return { ...prev, plots, wheat, money, stats };
       });
     }, 300);
     return () => clearInterval(id);
@@ -380,7 +410,13 @@ function Game({ username, onLoggedOut }) {
       plots[i] = { ...plots[i], state: 'empty' };
       pushLog(`Parcelle achetée pour ${cost}p.`);
       markDirty();
-      return { ...prev, money: prev.money - cost, plots, plotsInvested: (prev.plotsInvested || 0) + cost };
+      return {
+        ...prev,
+        money: prev.money - cost,
+        plots,
+        plotsInvested: (prev.plotsInvested || 0) + cost,
+        stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + cost },
+      };
     });
   }
 
@@ -391,12 +427,14 @@ function Game({ username, onLoggedOut }) {
       const indices = useCombine ? get2x2Block(i, prev.farmCols, prev.farmRows) : [i];
       const plots = prev.plots.slice();
       let money = prev.money;
+      let spent = 0;
       let attempted = false;
       indices.forEach((idx) => {
         if (plots[idx].state !== 'empty') return;
         if (money < SEED_COST) return;
         attempted = true;
         money -= SEED_COST;
+        spent += SEED_COST;
         if (useCombine && Math.random() < semoirMecaFailChance(prev)) {
           pushLog("Semis raté : la graine n'a pas pris (semoir mécanique).");
         } else {
@@ -408,7 +446,7 @@ function Game({ username, onLoggedOut }) {
         return prev;
       }
       markDirty();
-      return { ...prev, money, plots };
+      return { ...prev, money, plots, stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + spent } };
     });
   }
 
@@ -419,6 +457,8 @@ function Game({ username, onLoggedOut }) {
       const indices = useCombine ? get2x2Block(i, prev.farmCols, prev.farmRows) : [i];
       const plots = prev.plots.slice();
       let wheat = prev.wheat;
+      let harvested = 0;
+      let lost = 0;
       let touched = false;
       indices.forEach((idx) => {
         if (plots[idx].state !== 'ready') return;
@@ -428,13 +468,26 @@ function Game({ username, onLoggedOut }) {
         const cap = siloCap(prev);
         const space = cap - wheat;
         const added = Math.min(amount, Math.max(0, space));
-        if (added < amount) pushLog(`Silo plein ! ${amount - added} unités de blé perdues.`);
+        if (added < amount) {
+          pushLog(`Silo plein ! ${amount - added} unités de blé perdues.`);
+          lost += amount - added;
+        }
         wheat += added;
+        harvested += added;
         plots[idx] = { state: 'empty', plantedAt: null };
       });
       if (!touched) return prev;
       markDirty();
-      return { ...prev, wheat, plots };
+      return {
+        ...prev,
+        wheat,
+        plots,
+        stats: {
+          ...prev.stats,
+          totalWheatHarvested: prev.stats.totalWheatHarvested + harvested,
+          totalWheatLost: prev.stats.totalWheatLost + lost,
+        },
+      };
     });
   }
 
@@ -444,7 +497,18 @@ function Game({ username, onLoggedOut }) {
       const total = Math.round(prev.wheat * SELL_PRICE);
       pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p.`);
       markDirty();
-      return { ...prev, money: prev.money + total, wheat: 0 };
+      return {
+        ...prev,
+        money: prev.money + total,
+        wheat: 0,
+        stats: {
+          ...prev.stats,
+          totalEarned: prev.stats.totalEarned + total,
+          totalWheatSold: prev.stats.totalWheatSold + prev.wheat,
+          salesCount: prev.stats.salesCount + 1,
+          recentSales: [...prev.stats.recentSales, { t: Date.now(), amount: total }],
+        },
+      };
     });
   }
 
@@ -469,6 +533,7 @@ function Game({ username, onLoggedOut }) {
         ...prev,
         money: prev.money - cost,
         upgrades: { ...prev.upgrades, [key]: { level: u.level + 1, totalInvested: (u.totalInvested || 0) + cost } },
+        stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + cost },
       };
     });
   }
@@ -562,11 +627,22 @@ function Game({ username, onLoggedOut }) {
 
   const owned = ownedCount(state.plots);
   const nextPlotCost = plotCost(state.plots, state);
+  const recentSales = state.stats.recentSales.filter((e) => Date.now() - e.t <= 60000);
+  const perSecond = recentSales.reduce((sum, e) => sum + e.amount, 0) / 60;
+  const elapsedMs = Date.now() - state.stats.startedAt;
+  const elapsedSec = Math.max(elapsedMs / 1000, 1);
+  const totalProduced = state.stats.totalWheatHarvested + state.stats.totalWheatLost;
+  const wastePct = totalProduced > 0 ? (state.stats.totalWheatLost / totalProduced) * 100 : 0;
+  const costPerUnit = state.stats.totalWheatHarvested > 0 ? state.stats.totalSpent / state.stats.totalWheatHarvested : 0;
+  const netProfit = state.stats.totalEarned - state.stats.totalSpent;
+  const idealCadence = owned > 0 ? growTimeSeconds(state) / owned : growTimeSeconds(state);
+  const sowerInterval = semeurInterval(state);
+  const harvestInterval = ouvrierInterval(state);
 
   return (
     <>
       <div className="topbar">
-        <h1>Wheat2Wealth</h1>
+        <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ height: 40, display: 'block' }} /></h1>
         <div className="top-right">
           <span>
             Joueur : <b>{username}</b>
@@ -579,6 +655,9 @@ function Game({ username, onLoggedOut }) {
           </button>
           <div className="wallet">
             Trésorerie : <span>{Math.round(state.money).toLocaleString()}</span> p
+          </div>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--gold)', border: '1px solid rgba(138,160,102,0.4)', borderRadius: 3, padding: '4px 10px' }}>
+            {perSecond.toFixed(2)} p/s
           </div>
         </div>
       </div>
@@ -630,7 +709,7 @@ function Game({ username, onLoggedOut }) {
           </div>
         )}
 
-        <div className="ledger">
+        <div className="ledger panel-col-left">
           <div className="ledger-section">
             <h2>Parcelles</h2>
             <div className="row"><span>Prochaine parcelle</span><span>{nextPlotCost} p</span></div>
@@ -696,6 +775,43 @@ function Game({ username, onLoggedOut }) {
           </div>
           <hr />
           <div className="ledger-section">
+            <h2>Efficacité de la ferme</h2>
+            <div className="stat-grid">
+              <div className="stat-card">
+                <div className="stat-label">Parcelles en exploitation</div>
+                <div className="stat-value">{owned}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence idéale (plein régime)</div>
+                <div className="stat-value">1 toutes les {idealCadence.toFixed(2)}s</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence du semeur</div>
+                <div className={`stat-value ${sowerInterval === null ? '' : sowerInterval <= idealCadence ? 'ok' : 'slow'}`}>
+                  {sowerInterval === null ? 'inactif' : `1 toutes les ${sowerInterval.toFixed(1)}s`}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence de l&rsquo;ouvrier</div>
+                <div className={`stat-value ${harvestInterval === null ? '' : harvestInterval <= idealCadence ? 'ok' : 'slow'}`}>
+                  {harvestInterval === null ? 'inactif' : `1 toutes les ${harvestInterval.toFixed(1)}s`}
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr />
+          <div className="ledger-section">
+            <h2>Registre</h2>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 110, overflowY: 'auto' }}>
+              {log.map((m, i) => (
+                <li key={i} style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', padding: '3px 0' }}>{m}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="ledger panel-col-right">
+          <div className="ledger-section">
             <h2>Investissements</h2>
             {Object.keys(UPGRADE_DEFS).map((key) => {
               const def = UPGRADE_DEFS[key];
@@ -749,6 +865,72 @@ function Game({ username, onLoggedOut }) {
           </div>
           <hr />
           <div className="ledger-section">
+            <h2>Statistiques</h2>
+            <p className="field-caption" style={{ color: 'var(--ink-soft)' }}>
+              Les chiffres bruts pour optimiser ta stratégie — tout ce qui compte pour battre les
+              autres joueurs à temps de jeu égal.
+            </p>
+            <div className="stat-grid stats-wide">
+              <div className="stat-card">
+                <div className="stat-label">Temps de jeu</div>
+                <div className="stat-value">{formatDuration(elapsedMs)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Revenu total (ventes)</div>
+                <div className="stat-value">{Math.round(state.stats.totalEarned).toLocaleString()} p</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Dépenses totales</div>
+                <div className="stat-value">{Math.round(state.stats.totalSpent).toLocaleString()} p</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Profit net</div>
+                <div className={`stat-value ${netProfit >= 0 ? 'ok' : 'slow'}`}>
+                  {netProfit >= 0 ? '+' : ''}{Math.round(netProfit).toLocaleString()} p
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Nombre de ventes</div>
+                <div className="stat-value">{state.stats.salesCount}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Blé vendu (total)</div>
+                <div className="stat-value">{state.stats.totalWheatSold}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Blé produit (total)</div>
+                <div className="stat-value">{totalProduced}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Blé perdu (silo plein)</div>
+                <div className={`stat-value ${state.stats.totalWheatLost > 0 ? 'slow' : 'ok'}`}>
+                  {state.stats.totalWheatLost}{totalProduced > 0 ? ` (${wastePct.toFixed(1)}%)` : ''}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Revenu moyen depuis le début</div>
+                <div className="stat-value">{(state.stats.totalEarned / elapsedSec).toFixed(2)} p/s</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence actuelle (60s)</div>
+                <div className="stat-value">{perSecond.toFixed(2)} p/s</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Coût moyen / unité de blé</div>
+                <div className="stat-value">{state.stats.totalWheatHarvested > 0 ? `${costPerUnit.toFixed(2)} p/unité` : '—'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Marge nette / unité</div>
+                <div className={`stat-value ${state.stats.totalWheatHarvested > 0 ? (SELL_PRICE - costPerUnit >= 0 ? 'ok' : 'slow') : ''}`}>
+                  {state.stats.totalWheatHarvested > 0
+                    ? `${SELL_PRICE - costPerUnit >= 0 ? '+' : ''}${(SELL_PRICE - costPerUnit).toFixed(2)} p/unité`
+                    : '—'}
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr />
+          <div className="ledger-section">
             <h2>Classement</h2>
             <ul className="leaderboard">
               {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
@@ -761,18 +943,17 @@ function Game({ username, onLoggedOut }) {
             </ul>
             <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
           </div>
-          <hr />
-          <div className="ledger-section">
-            <h2>Registre</h2>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 110, overflowY: 'auto' }}>
-              {log.map((m, i) => (
-                <li key={i} style={{ fontSize: '0.72rem', color: 'var(--ink-soft)', padding: '3px 0' }}>{m}</li>
-              ))}
-            </ul>
-          </div>
         </div>
       </div>
     </>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: '1.5rem', height: '1.5rem' }}>
+      <path d="M7 10V8a5 5 0 0110 0v2h.5A1.5 1.5 0 0119 11.5v9a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 015 20.5v-9A1.5 1.5 0 016.5 10H7zm2 0h6V8a3 3 0 00-6 0v2zm3 5a1.5 1.5 0 00-.75 2.8V19a.75.75 0 001.5 0v-1.2A1.5 1.5 0 0012 15z" />
+    </svg>
   );
 }
 
@@ -781,32 +962,29 @@ function Plot({ plot, cost, money, growTime, onClick }) {
     const affordable = money >= cost;
     return (
       <div className={`plot locked ${affordable ? 'affordable' : ''}`} onClick={onClick}>
-        🔒
+        <LockIcon />
         <span className="plot-price">{cost}p</span>
       </div>
     );
   }
   if (plot.state === 'empty') {
     return (
-      <div className="plot empty" onClick={onClick}>
-        ＋
+      <div className="plot empty" style={{ backgroundImage: 'url(/sprites/field-soil.webp)' }} onClick={onClick}>
         <span className="plot-price">{SEED_COST}p</span>
       </div>
     );
   }
   if (plot.state === 'growing') {
     const progress = Math.min(1, (Date.now() - plot.plantedAt) / (growTime * 1000));
+    const sprite = progress < 0.5 ? 'field-sown' : 'field-growing';
     return (
-      <div className="plot growing">
-        {progress < 0.5 ? '🌱' : '🌿'}
+      <div className="plot growing" style={{ backgroundImage: `url(/sprites/${sprite}.webp)` }}>
         <span className="plot-bar"><span className="plot-bar-fill" style={{ width: `${progress * 100}%` }} /></span>
       </div>
     );
   }
   return (
-    <div className="plot ready" onClick={onClick}>
-      🌾
-    </div>
+    <div className="plot ready" style={{ backgroundImage: 'url(/sprites/field-ready.webp)' }} onClick={onClick} />
   );
 }
 
