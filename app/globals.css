@@ -143,6 +143,8 @@ input{
   text-shadow:0 1px 3px rgba(0,0,0,0.65);
 }
 .floating-gain.gain-wheat{color:#f2c869; font-size:1.2rem;}
+.floating-gain.gain-sow{color:var(--gold-bright); font-size:1.15rem;}
+.floating-gain.gain-fail{color:var(--alert); font-size:1.1rem;}
 @keyframes floatUp{
   0%{opacity:1; transform:translate(-50%, 0) scale(1);}
   15%{transform:translate(-50%, -4px) scale(1.15);}

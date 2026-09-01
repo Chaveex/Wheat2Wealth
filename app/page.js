@@ -343,6 +343,7 @@ function Game({ username, onLoggedOut }) {
               changed = true;
               dirtyRef.current = true;
               addFlash(idx, 'sower');
+              spawnFloatingGain(idx, '🌱', 'gain-sow');
             }
             lastSowRef.current = Date.now();
           }
@@ -464,6 +465,7 @@ function Game({ username, onLoggedOut }) {
   }
 
   function plant(i) {
+    const results = []; // {idx, success}
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
@@ -480,8 +482,10 @@ function Game({ username, onLoggedOut }) {
         spent += SEED_COST;
         if (useCombine && Math.random() < semoirMecaFailChance(prev)) {
           pushLog("Semis raté : la graine n'a pas pris (semoir mécanique).");
+          results.push({ idx, success: false });
         } else {
           plots[idx] = { state: 'growing', plantedAt: Date.now() };
+          results.push({ idx, success: true });
         }
       });
       if (!attempted) {
@@ -490,6 +494,9 @@ function Game({ username, onLoggedOut }) {
       }
       markDirty();
       return { ...prev, money, plots, stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + spent } };
+    });
+    results.forEach(({ idx, success }) => {
+      spawnFloatingGain(idx, success ? '🌱' : '✕', success ? 'gain-sow' : 'gain-fail');
     });
   }
 
