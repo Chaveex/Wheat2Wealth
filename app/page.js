@@ -19,6 +19,12 @@ import {
   semeurInterval,
   findNextIndex,
   normalizeState,
+  meets4LinesRequirement,
+  get2x2Block,
+  moissonneusePenalty,
+  semoirMecaFailChance,
+  courtierTax,
+  COURTIER_THRESHOLD,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -144,9 +150,14 @@ function Game({ username, onLoggedOut }) {
   const [resetArmed, setResetArmed] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [harvestMode, setHarvestMode] = useState('manual');
+  const [sowMode, setSowMode] = useState('manual');
+  const [courtierActive, setCourtierActive] = useState(true);
   const dirtyRef = useRef(false);
   const stateRef = useRef(null);
   stateRef.current = state;
+  const courtierActiveRef = useRef(true);
+  courtierActiveRef.current = courtierActive;
 
   const pushLog = useCallback((msg) => {
     setLog((prev) => [msg, ...prev].slice(0, 8));
@@ -275,6 +286,20 @@ function Game({ username, onLoggedOut }) {
           }
         }
 
+        if (courtierActiveRef.current && prev.upgrades.courtier.level > 0) {
+          const cap = siloCap(prev);
+          if (cap > 0 && wheat >= cap * COURTIER_THRESHOLD) {
+            const gross = Math.round(wheat * SELL_PRICE);
+            const tax = courtierTax(prev);
+            const total = Math.round(gross * (1 - tax));
+            pushLog(`Vente automatique (courtier) de ${wheat} unités de blé pour ${total}p (taxe ${Math.round(tax * 100)}%).`);
+            money += total;
+            wheat = 0;
+            changed = true;
+            dirtyRef.current = true;
+          }
+        }
+
         if (!changed) return prev;
         return { ...prev, plots, wheat, money };
       });
@@ -357,30 +382,55 @@ function Game({ username, onLoggedOut }) {
 
   function plant(i) {
     setState((prev) => {
-      if (!prev || prev.plots[i].state !== 'empty') return prev;
-      if (prev.money < SEED_COST) {
+      if (!prev) return prev;
+      const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
+      const indices = useCombine ? get2x2Block(i) : [i];
+      const plots = prev.plots.slice();
+      let money = prev.money;
+      let attempted = false;
+      indices.forEach((idx) => {
+        if (plots[idx].state !== 'empty') return;
+        if (money < SEED_COST) return;
+        attempted = true;
+        money -= SEED_COST;
+        if (useCombine && Math.random() < semoirMecaFailChance(prev)) {
+          pushLog("Semis raté : la graine n'a pas pris (semoir mécanique).");
+        } else {
+          plots[idx] = { state: 'growing', plantedAt: Date.now() };
+        }
+      });
+      if (!attempted) {
         pushLog(`Pas assez de trésorerie pour semer (${SEED_COST}p).`);
         return prev;
       }
-      const plots = prev.plots.slice();
-      plots[i] = { state: 'growing', plantedAt: Date.now() };
       markDirty();
-      return { ...prev, money: prev.money - SEED_COST, plots };
+      return { ...prev, money, plots };
     });
   }
 
   function harvest(i) {
     setState((prev) => {
-      if (!prev || prev.plots[i].state !== 'ready') return prev;
-      const amount = yieldAmount(prev);
-      const cap = siloCap(prev);
-      const space = cap - prev.wheat;
-      const added = Math.min(amount, Math.max(0, space));
-      if (added < amount) pushLog(`Silo plein ! ${amount - added} unités de blé perdues.`);
+      if (!prev) return prev;
+      const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
+      const indices = useCombine ? get2x2Block(i) : [i];
       const plots = prev.plots.slice();
-      plots[i] = { state: 'empty', plantedAt: null };
+      let wheat = prev.wheat;
+      let touched = false;
+      indices.forEach((idx) => {
+        if (plots[idx].state !== 'ready') return;
+        touched = true;
+        let amount = yieldAmount(prev);
+        if (useCombine) amount = Math.max(0, Math.round(amount * (1 - moissonneusePenalty(prev))));
+        const cap = siloCap(prev);
+        const space = cap - wheat;
+        const added = Math.min(amount, Math.max(0, space));
+        if (added < amount) pushLog(`Silo plein ! ${amount - added} unités de blé perdues.`);
+        wheat += added;
+        plots[idx] = { state: 'empty', plantedAt: null };
+      });
+      if (!touched) return prev;
       markDirty();
-      return { ...prev, wheat: prev.wheat + added, plots };
+      return { ...prev, wheat, plots };
     });
   }
 
@@ -400,6 +450,10 @@ function Game({ username, onLoggedOut }) {
       const u = prev.upgrades[key];
       const def = UPGRADE_DEFS[key];
       if (u.level >= def.max) return prev;
+      if ((key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(prev.plots)) {
+        pushLog(`${def.name} verrouillé(e) : débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles.`);
+        return prev;
+      }
       const cost = upgradeCost(key, u.level);
       if (prev.money < cost) {
         pushLog(`Pas assez de trésorerie pour "${def.name}" (${cost}p).`);
@@ -486,6 +540,22 @@ function Game({ username, onLoggedOut }) {
           <div className="field-caption">
             Clique une parcelle libre pour l&rsquo;acheter, une parcelle semée pour la récolter.
           </div>
+          {state.upgrades.moissonneuse.level > 0 && (
+            <ModeToggle
+              label="Mode de récolte :"
+              value={harvestMode}
+              onChange={setHarvestMode}
+              combineLabel={`Moissonneuse (2×2, -${Math.round(moissonneusePenalty(state) * 100)}%)`}
+            />
+          )}
+          {state.upgrades.semoirMeca.level > 0 && (
+            <ModeToggle
+              label="Mode de semis :"
+              value={sowMode}
+              onChange={setSowMode}
+              combineLabel={`Semoir (2×2, ${Math.round(semoirMecaFailChance(state) * 100)}% d'échec)`}
+            />
+          )}
           <div className="field">
             {state.plots.map((p, i) => (
               <Plot key={i} plot={p} cost={nextPlotCost} money={state.money}
@@ -515,6 +585,17 @@ function Game({ username, onLoggedOut }) {
             <button className="full-btn" disabled={state.wheat <= 0} onClick={sell}>
               VENTE À LA CRIÉE {Math.round(state.wheat * SELL_PRICE)}p
             </button>
+            {state.upgrades.courtier.level > 0 && (
+              <div className="row" style={{ marginTop: 10 }}>
+                <span>Courtier automatique :</span>
+                <button
+                  onClick={() => setCourtierActive((v) => !v)}
+                  style={{ background: courtierActive ? 'var(--gold)' : '#5a584f', color: courtierActive ? 'var(--ink)' : '#c9c4b6' }}
+                >
+                  {courtierActive ? 'Activé' : 'Désactivé'}
+                </button>
+              </div>
+            )}
           </div>
           <hr />
           <div className="ledger-section">
@@ -533,6 +614,18 @@ function Game({ username, onLoggedOut }) {
                 desc = u.level <= 0
                   ? "Aucun semeur pour l'instant : les parcelles vides restent vides tant que tu ne sèmes pas toi-même."
                   : `Sème une parcelle vide toutes les ${semeurInterval(state).toFixed(1)} s.`;
+              } else if (key === 'moissonneuse') {
+                desc = u.level <= 0
+                  ? "Débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles achetées pour pouvoir l'acheter."
+                  : `Permet de récolter en carré de 2×2 (à toi de choisir le mode). Pénalité de rendement actuelle en mode moissonneuse : -${Math.round(moissonneusePenalty(state) * 100)}%.`;
+              } else if (key === 'semoirMeca') {
+                desc = u.level <= 0
+                  ? "Débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles achetées pour pouvoir l'acheter."
+                  : `Permet de semer en carré de 2×2 (à toi de choisir le mode). Risque actuel qu'une parcelle ne prenne pas : ${Math.round(semoirMecaFailChance(state) * 100)}%.`;
+              } else if (key === 'courtier') {
+                desc = u.level <= 0
+                  ? 'Vend automatiquement le blé quand le silo est presque plein, contre une taxe.'
+                  : `Vend automatiquement tout le blé dès que le silo atteint ${Math.round(COURTIER_THRESHOLD * 100)}% de sa capacité. Taxe actuelle : ${Math.round(courtierTax(state) * 100)}%. Vendre à la main reste plus rentable (jamais de taxe).`;
               }
               return (
                 <div className="upgrade" key={key}>
@@ -607,6 +700,28 @@ function Plot({ plot, cost, money, growTime, onClick }) {
   return (
     <div className="plot ready" onClick={onClick}>
       🌾
+    </div>
+  );
+}
+
+function ModeToggle({ label, value, onChange, combineLabel }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.78rem', color: '#a8a498', marginBottom: 10 }}>
+      <span style={{ minWidth: 112, display: 'inline-block' }}>{label}</span>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          onClick={() => onChange('manual')}
+          style={value === 'manual' ? { background: 'var(--gold)', color: 'var(--ink)' } : undefined}
+        >
+          À la main
+        </button>
+        <button
+          onClick={() => onChange('combine')}
+          style={value === 'combine' ? { background: 'var(--gold)', color: 'var(--ink)' } : undefined}
+        >
+          {combineLabel}
+        </button>
+      </div>
     </div>
   );
 }
