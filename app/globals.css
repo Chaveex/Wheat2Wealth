@@ -2,8 +2,8 @@
 
 :root{
   --soil-dark:#1D1C1A;
-  --soil:#332413;
-  --soil-line:#4a3520;
+  --soil:#2c2b27;
+  --soil-line:#4a4841;
   --paper:#D6CDBC;
   --paper-line:#bcb2a0;
   --ink:#1D1C1A;
@@ -89,7 +89,7 @@ input{
   transition:transform .08s ease;
 }
 .plot:active{transform:scale(.94);}
-.plot.locked{background:var(--locked); color:#6b6152; cursor:not-allowed;}
+.plot.locked{background:var(--locked); color:#5a584f; cursor:not-allowed;}
 .plot.locked.affordable{color:var(--gold); cursor:pointer;}
 .plot.empty{background-size:cover; background-position:center;}
 .plot.empty:hover{filter:brightness(1.15);}
