@@ -343,14 +343,17 @@ function Game({ username, onLoggedOut }) {
     return () => clearInterval(id);
   }, []);
 
+  const bestScoreRef = useRef(0);
+  bestScoreRef.current = bestScore;
+
   // Autosave loop.
   useEffect(() => {
     const id = setInterval(async () => {
       if (dirtyRef.current && stateRef.current) {
         dirtyRef.current = false;
         const money = Math.round(stateRef.current.money);
-        const newBest = Math.max(bestScore, money);
-        if (newBest !== bestScore) setBestScore(newBest);
+        const newBest = Math.max(bestScoreRef.current, money);
+        if (newBest !== bestScoreRef.current) setBestScore(newBest);
         try {
           const res = await fetch('/api/game/state', {
             method: 'POST',
@@ -371,7 +374,7 @@ function Game({ username, onLoggedOut }) {
       }
     }, 4000);
     return () => clearInterval(id);
-  }, [bestScore, refreshLeaderboard]);
+  }, [refreshLeaderboard]);
 
   function markDirty() {
     dirtyRef.current = true;
@@ -383,7 +386,7 @@ function Game({ username, onLoggedOut }) {
     function handleUnload() {
       if (dirtyRef.current && stateRef.current) {
         const money = Math.round(stateRef.current.money);
-        const newBest = Math.max(bestScore, money);
+        const newBest = Math.max(bestScoreRef.current, money);
         fetch('/api/game/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -398,7 +401,7 @@ function Game({ username, onLoggedOut }) {
       window.removeEventListener('beforeunload', handleUnload);
       window.removeEventListener('pagehide', handleUnload);
     };
-  }, [bestScore]);
+  }, []);
 
   function buyPlot(i) {
     setState((prev) => {

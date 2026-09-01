@@ -49,12 +49,12 @@ button:hover:not(:disabled){background:var(--gold-bright); color:var(--ink);}
 .invest-btn.on{color:var(--paper); font-weight:600;}
 .invest-btn.off{color:#5a584f; font-weight:600;}
 .invest-btn.maxed{color:var(--ink); font-weight:700;}
-.invest-btn.on:hover:not(:disabled){color:var(--paper); filter:brightness(1.12);}
-.invest-btn.off:hover:not(:disabled){color:#5a584f; filter:brightness(1.12);}
+.invest-btn.on:hover:not(:disabled){color:var(--paper); background-size:100% 100%; background-repeat:no-repeat; background-position:center; filter:brightness(1.12);}
+.invest-btn.off:hover:not(:disabled){color:#5a584f; background-size:100% 100%; background-repeat:no-repeat; background-position:center; filter:brightness(1.12);}
 
 .sell-btn{background-size:100% 100%; background-color:transparent; border:none; height:56px; font-family:'Courier New',monospace; color:#736f60; font-weight:600;}
 .sell-btn.ready{color:#2B1D0C; font-weight:700;}
-.sell-btn.ready:hover:not(:disabled){color:#2B1D0C; filter:brightness(1.1);}
+.sell-btn.ready:hover:not(:disabled){color:#2B1D0C; background-size:100% 100%; background-repeat:no-repeat; background-position:center; filter:brightness(1.1);}
 
 .mode-btn.active{background:var(--gold); color:var(--ink);}
 .mode-btn.active:hover:not(:disabled){background:var(--gold); color:var(--ink); filter:brightness(1.1);}
