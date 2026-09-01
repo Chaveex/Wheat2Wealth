@@ -60,7 +60,7 @@ input{
 
 .topbar{
   display:flex; justify-content:space-between; align-items:center;
-  padding:18px 28px; background:var(--soil); border-bottom:2px solid var(--gold);
+  height:82px; padding:0 28px; background:var(--soil); border-bottom:2px solid var(--gold);
   flex-wrap:wrap; gap:10px;
 }
 .topbar h1{font-size:1.4rem; color:var(--gold-bright);}

@@ -642,7 +642,7 @@ function Game({ username, onLoggedOut }) {
   return (
     <>
       <div className="topbar">
-        <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ height: 40, display: 'block' }} /></h1>
+        <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
         <div className="top-right">
           <span>
             Joueur : <b>{username}</b>
