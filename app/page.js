@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  COLS,
   FREE_PLOTS,
   SELL_PRICE,
   SEED_COST,
@@ -25,6 +24,9 @@ import {
   semoirMecaFailChance,
   courtierTax,
   COURTIER_THRESHOLD,
+  computeResaleValue,
+  choiceTierCount,
+  choiceTierCost,
   harvesterSprite,
   seederSprite,
 } from '@/lib/gameLogic';
@@ -234,7 +236,7 @@ function Game({ username, onLoggedOut }) {
   useEffect(() => {
     const id = setInterval(() => {
       setState((prev) => {
-        if (!prev) return prev;
+        if (!prev || prev.gamePhase !== 'playing') return prev;
         const gt = growTimeSeconds(prev) * 1000;
         let plots = prev.plots;
         let wheat = prev.wheat;
@@ -369,7 +371,7 @@ function Game({ username, onLoggedOut }) {
   function buyPlot(i) {
     setState((prev) => {
       if (!prev || prev.plots[i].state !== 'locked') return prev;
-      const cost = plotCost(prev.plots);
+      const cost = plotCost(prev.plots, prev);
       if (prev.money < cost) {
         pushLog(`Pas assez de trésorerie pour une nouvelle parcelle (${cost}p).`);
         return prev;
@@ -378,7 +380,7 @@ function Game({ username, onLoggedOut }) {
       plots[i] = { ...plots[i], state: 'empty' };
       pushLog(`Parcelle achetée pour ${cost}p.`);
       markDirty();
-      return { ...prev, money: prev.money - cost, plots };
+      return { ...prev, money: prev.money - cost, plots, plotsInvested: (prev.plotsInvested || 0) + cost };
     });
   }
 
@@ -386,7 +388,7 @@ function Game({ username, onLoggedOut }) {
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
-      const indices = useCombine ? get2x2Block(i) : [i];
+      const indices = useCombine ? get2x2Block(i, prev.farmCols, prev.farmRows) : [i];
       const plots = prev.plots.slice();
       let money = prev.money;
       let attempted = false;
@@ -414,7 +416,7 @@ function Game({ username, onLoggedOut }) {
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
-      const indices = useCombine ? get2x2Block(i) : [i];
+      const indices = useCombine ? get2x2Block(i, prev.farmCols, prev.farmRows) : [i];
       const plots = prev.plots.slice();
       let wheat = prev.wheat;
       let touched = false;
@@ -452,11 +454,11 @@ function Game({ username, onLoggedOut }) {
       const u = prev.upgrades[key];
       const def = UPGRADE_DEFS[key];
       if (u.level >= def.max) return prev;
-      if ((key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(prev.plots)) {
+      if ((key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(prev.plots, prev.farmCols, prev.farmRows)) {
         pushLog(`${def.name} verrouillé(e) : débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles.`);
         return prev;
       }
-      const cost = upgradeCost(key, u.level);
+      const cost = upgradeCost(key, u.level, prev);
       if (prev.money < cost) {
         pushLog(`Pas assez de trésorerie pour "${def.name}" (${cost}p).`);
         return prev;
@@ -466,7 +468,7 @@ function Game({ username, onLoggedOut }) {
       return {
         ...prev,
         money: prev.money - cost,
-        upgrades: { ...prev.upgrades, [key]: { level: u.level + 1 } },
+        upgrades: { ...prev.upgrades, [key]: { level: u.level + 1, totalInvested: (u.totalInvested || 0) + cost } },
       };
     });
   }
@@ -490,6 +492,56 @@ function Game({ username, onLoggedOut }) {
     markDirty();
   }
 
+  const [sellFarmArmed, setSellFarmArmed] = useState(false);
+
+  function handleSellFarm() {
+    if (!sellFarmArmed) {
+      setSellFarmArmed(true);
+      setTimeout(() => setSellFarmArmed(false), 4000);
+      return;
+    }
+    setSellFarmArmed(false);
+    setState((prev) => {
+      if (!prev) return prev;
+      const value = computeResaleValue(prev);
+      const upgrades = {};
+      Object.keys(prev.upgrades).forEach((key) => { upgrades[key] = { level: 0, totalInvested: 0 }; });
+      pushLog(`Exploitation revendue pour ${value}p. Génération ${prev.generation} : à toi de choisir ta nouvelle exploitation.`);
+      markDirty();
+      return {
+        ...prev,
+        money: prev.money + value,
+        wheat: 0,
+        plotsInvested: 0,
+        upgrades,
+        generation: prev.generation + 1,
+        gamePhase: 'choosing',
+      };
+    });
+    setHarvestMode('manual');
+    setSowMode('manual');
+  }
+
+  function chooseFarm(tier) {
+    setState((prev) => {
+      if (!prev) return prev;
+      const cost = choiceTierCost(tier, prev);
+      if (prev.money < cost) return prev;
+      const newCols = prev.farmCols + tier;
+      const newRows = prev.farmRows + tier;
+      pushLog(`Nouvelle exploitation choisie : ${newCols} × ${newRows} parcelles.`);
+      markDirty();
+      return {
+        ...prev,
+        money: prev.money - cost,
+        farmCols: newCols,
+        farmRows: newRows,
+        plots: freshPlots(newCols, newRows),
+        gamePhase: 'playing',
+      };
+    });
+  }
+
   if (!state) {
     return (
       <div className="auth-wrap">
@@ -509,7 +561,7 @@ function Game({ username, onLoggedOut }) {
   }
 
   const owned = ownedCount(state.plots);
-  const nextPlotCost = plotCost(state.plots);
+  const nextPlotCost = plotCost(state.plots, state);
 
   return (
     <>
@@ -538,41 +590,45 @@ function Game({ username, onLoggedOut }) {
       )}
 
       <div className="layout">
-        <div className="field-wrap">
-          <div className="field-caption">
-            Clique une parcelle libre pour l&rsquo;acheter, une parcelle semée pour la récolter.
-          </div>
-          {state.upgrades.moissonneuse.level > 0 && (
-            <ModeToggle
-              label="Mode de récolte :"
-              value={harvestMode}
-              onChange={setHarvestMode}
-              combineLabel={`Moissonneuse (2×2, -${Math.round(moissonneusePenalty(state) * 100)}%)`}
-              combineIcon={harvesterSprite(state.upgrades.moissonneuse.level)}
-            />
-          )}
-          {state.upgrades.semoirMeca.level > 0 && (
-            <ModeToggle
-              label="Mode de semis :"
-              value={sowMode}
-              onChange={setSowMode}
-              combineLabel={`Semoir (2×2, ${Math.round(semoirMecaFailChance(state) * 100)}% d'échec)`}
-              combineIcon={seederSprite(state.upgrades.semoirMeca.level)}
-            />
-          )}
-          <div className="field">
-            {state.plots.map((p, i) => (
-              <Plot key={i} plot={p} cost={nextPlotCost} money={state.money}
-                growTime={growTimeSeconds(state)}
-                onClick={() => {
-                  if (p.state === 'locked') buyPlot(i);
-                  else if (p.state === 'empty') plant(i);
-                  else if (p.state === 'ready') harvest(i);
-                }}
+        {state.gamePhase === 'choosing' ? (
+          <FarmChoiceScreen state={state} onChoose={chooseFarm} />
+        ) : (
+          <div className="field-wrap">
+            <div className="field-caption">
+              Clique une parcelle libre pour l&rsquo;acheter, une parcelle semée pour la récolter.
+            </div>
+            {state.upgrades.moissonneuse.level > 0 && (
+              <ModeToggle
+                label="Mode de récolte :"
+                value={harvestMode}
+                onChange={setHarvestMode}
+                combineLabel={`Moissonneuse (2×2, -${Math.round(moissonneusePenalty(state) * 100)}%)`}
+                combineIcon={harvesterSprite(state.upgrades.moissonneuse.level)}
               />
-            ))}
+            )}
+            {state.upgrades.semoirMeca.level > 0 && (
+              <ModeToggle
+                label="Mode de semis :"
+                value={sowMode}
+                onChange={setSowMode}
+                combineLabel={`Semoir (2×2, ${Math.round(semoirMecaFailChance(state) * 100)}% d'échec)`}
+                combineIcon={seederSprite(state.upgrades.semoirMeca.level)}
+              />
+            )}
+            <div className="field" style={{ gridTemplateColumns: `repeat(${state.farmCols}, 1fr)` }}>
+              {state.plots.map((p, i) => (
+                <Plot key={i} plot={p} cost={nextPlotCost} money={state.money}
+                  growTime={growTimeSeconds(state)}
+                  onClick={() => {
+                    if (p.state === 'locked') buyPlot(i);
+                    else if (p.state === 'empty') plant(i);
+                    else if (p.state === 'ready') harvest(i);
+                  }}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="ledger">
           <div className="ledger-section">
@@ -580,6 +636,22 @@ function Game({ username, onLoggedOut }) {
             <div className="row"><span>Prochaine parcelle</span><span>{nextPlotCost} p</span></div>
             <div className="row"><span>Semer une parcelle libre</span><span>{SEED_COST} p</span></div>
             <div className="row muted"><span>Temps de pousse</span><span>{growTimeSeconds(state).toFixed(1)} s</span></div>
+          </div>
+          <hr />
+          <div className="ledger-section">
+            <h2>Exploitation</h2>
+            <div className="row"><span>Génération</span><span>{state.generation}</span></div>
+            <div className="row"><span>Taille du terrain</span><span>{state.farmCols} × {state.farmRows}</span></div>
+            <button
+              className={`full-btn ${sellFarmArmed ? 'armed' : ''}`}
+              disabled={state.gamePhase !== 'playing'}
+              onClick={handleSellFarm}
+              style={sellFarmArmed ? { background: 'var(--alert)', color: '#fff' } : undefined}
+            >
+              {sellFarmArmed
+                ? `Confirmer la vente ? (${computeResaleValue(state)}p)`
+                : `Revente de l'exploitation (${computeResaleValue(state)}p)`}
+            </button>
           </div>
           <hr />
           <div className="ledger-section">
@@ -629,7 +701,7 @@ function Game({ username, onLoggedOut }) {
               const def = UPGRADE_DEFS[key];
               const u = state.upgrades[key];
               const maxed = u.level >= def.max;
-              const cost = upgradeCost(key, u.level);
+              const cost = upgradeCost(key, u.level, state);
               let desc = def.desc;
               if (key === 'ouvrier') {
                 desc = u.level <= 0
@@ -652,7 +724,7 @@ function Game({ username, onLoggedOut }) {
                   ? 'Vend automatiquement le blé quand le silo est presque plein, contre une taxe.'
                   : `Vend automatiquement tout le blé dès que le silo atteint ${Math.round(COURTIER_THRESHOLD * 100)}% de sa capacité. Taxe actuelle : ${Math.round(courtierTax(state) * 100)}%. Vendre à la main reste plus rentable (jamais de taxe).`;
               }
-              const gated = (key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(state.plots);
+              const gated = (key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(state.plots, state.farmCols, state.farmRows);
               const afford = state.money >= cost;
               let icon = null;
               if (key === 'moissonneuse') icon = harvesterSprite(u.level);
@@ -786,5 +858,46 @@ function InvestButton({ maxed, afford, cost, onClick }) {
     >
       {maxed ? 'Investissement maximal' : `Investir — ${cost}p`}
     </button>
+  );
+}
+
+function FarmChoiceScreen({ state, onChoose }) {
+  const tiers = choiceTierCount(state);
+  return (
+    <div className="field-wrap">
+      <h2>Choisis ta nouvelle exploitation</h2>
+      <p className="field-caption">
+        Ta trésorerie actuelle finance l&rsquo;achat. Si tu ne peux pas te permettre l&rsquo;exploitation
+        agrandie, tu repars sur une exploitation de même taille.
+      </p>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
+        {Array.from({ length: tiers }, (_, tier) => {
+          const cols = state.farmCols + tier;
+          const rows = state.farmRows + tier;
+          const cost = choiceTierCost(tier, state);
+          const afford = state.money >= cost;
+          return (
+            <div
+              key={tier}
+              style={{
+                flex: '1 1 220px', background: 'var(--paper)', color: 'var(--ink)',
+                border: '1px solid var(--paper-line)', borderRadius: 5, padding: '16px 18px', textAlign: 'center',
+              }}
+            >
+              <h3 style={{ fontFamily: "'Pixelify Sans','Courier New',monospace", margin: '0 0 8px', fontSize: '1rem' }}>
+                {tier === 0 ? 'Même taille' : `Agrandie (+${tier} ligne${tier > 1 ? 's' : ''}, +${tier} colonne${tier > 1 ? 's' : ''})`}
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '0 0 10px' }}>{cols} × {rows} parcelles</p>
+              <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--gold)', marginBottom: 12 }}>
+                {cost.toLocaleString()} p
+              </div>
+              <button className="full-btn" disabled={!afford} onClick={() => onChoose(tier)}>
+                Choisir cette exploitation
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
