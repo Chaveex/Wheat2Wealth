@@ -32,7 +32,8 @@ export async function POST(req) {
     .maybeSingle();
 
   if (lookupError) {
-    return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    console.error('register lookupError:', lookupError);
+    return NextResponse.json({ error: 'server_error', detail: lookupError.message }, { status: 500 });
   }
   if (existing) {
     return NextResponse.json({ error: 'username_taken' }, { status: 409 });
@@ -46,7 +47,8 @@ export async function POST(req) {
     .single();
 
   if (insertError) {
-    return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    console.error('register insertError:', insertError);
+    return NextResponse.json({ error: 'server_error', detail: insertError.message }, { status: 500 });
   }
 
   const { error: saveError } = await supabaseAdmin
@@ -54,7 +56,8 @@ export async function POST(req) {
     .insert({ account_id: account.id, state: initialState(), best_score: 0 });
 
   if (saveError) {
-    return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    console.error('register saveError:', saveError);
+    return NextResponse.json({ error: 'server_error', detail: saveError.message }, { status: 500 });
   }
 
   const token = createSessionToken({ accountId: account.id, username: account.username });

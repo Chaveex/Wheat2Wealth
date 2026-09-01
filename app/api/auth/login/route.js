@@ -26,7 +26,8 @@ export async function POST(req) {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    console.error('login lookupError:', error);
+    return NextResponse.json({ error: 'server_error', detail: error.message }, { status: 500 });
   }
   if (!account) {
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
