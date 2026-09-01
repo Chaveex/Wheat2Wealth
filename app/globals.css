@@ -59,6 +59,8 @@ button:hover:not(:disabled){background:var(--gold-bright); color:var(--ink);}
 .mode-btn.active{background:var(--gold); color:var(--ink);}
 .mode-btn.active:hover:not(:disabled){background:var(--gold); color:var(--ink); filter:brightness(1.1);}
 button:disabled{background:#5a584f; color:#928e80; cursor:not-allowed;}
+.invest-btn:disabled{background-size:100% 100%; background-repeat:no-repeat; background-position:center;}
+.sell-btn:disabled{background-size:100% 100%; background-repeat:no-repeat; background-position:center;}
 
 input{
   font-family:'Courier New', Courier, monospace;
