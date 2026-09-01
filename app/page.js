@@ -25,6 +25,8 @@ import {
   semoirMecaFailChance,
   courtierTax,
   COURTIER_THRESHOLD,
+  harvesterSprite,
+  seederSprite,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -546,6 +548,7 @@ function Game({ username, onLoggedOut }) {
               value={harvestMode}
               onChange={setHarvestMode}
               combineLabel={`Moissonneuse (2×2, -${Math.round(moissonneusePenalty(state) * 100)}%)`}
+              combineIcon={harvesterSprite(state.upgrades.moissonneuse.level)}
             />
           )}
           {state.upgrades.semoirMeca.level > 0 && (
@@ -554,6 +557,7 @@ function Game({ username, onLoggedOut }) {
               value={sowMode}
               onChange={setSowMode}
               combineLabel={`Semoir (2×2, ${Math.round(semoirMecaFailChance(state) * 100)}% d'échec)`}
+              combineIcon={seederSprite(state.upgrades.semoirMeca.level)}
             />
           )}
           <div className="field">
@@ -582,17 +586,38 @@ function Game({ username, onLoggedOut }) {
             <h2>Silo</h2>
             <div className="row"><span>Blé stocké</span><span>{state.wheat} / {siloCap(state)}</span></div>
             <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
-            <button className="full-btn" disabled={state.wheat <= 0} onClick={sell}>
+            <button
+              className="full-btn"
+              disabled={state.wheat <= 0}
+              onClick={sell}
+              style={{
+                backgroundImage: `url(${state.wheat > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})`,
+                backgroundSize: '100% 100%',
+                backgroundColor: 'transparent',
+                border: 'none',
+                height: 56,
+                fontFamily: "'Courier New', monospace",
+                fontWeight: state.wheat > 0 ? 700 : 600,
+                color: state.wheat > 0 ? '#2B1D0C' : '#736f60',
+              }}
+            >
               VENTE À LA CRIÉE {Math.round(state.wheat * SELL_PRICE)}p
             </button>
             {state.upgrades.courtier.level > 0 && (
-              <div className="row" style={{ marginTop: 10 }}>
+              <div className="row" style={{ marginTop: 10, alignItems: 'center' }}>
                 <span>Courtier automatique :</span>
                 <button
                   onClick={() => setCourtierActive((v) => !v)}
-                  style={{ background: courtierActive ? 'var(--gold)' : '#5a584f', color: courtierActive ? 'var(--ink)' : '#c9c4b6' }}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 0 }}
+                  aria-label={courtierActive ? 'Activé' : 'Désactivé'}
+                  title={courtierActive ? 'Activé' : 'Désactivé'}
                 >
-                  {courtierActive ? 'Activé' : 'Désactivé'}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={courtierActive ? '/sprites/toggle-on.webp' : '/sprites/toggle-off.webp'}
+                    alt={courtierActive ? 'Activé' : 'Désactivé'}
+                    style={{ height: 26, width: 'auto', imageRendering: 'pixelated', display: 'block' }}
+                  />
                 </button>
               </div>
             )}
@@ -627,16 +652,25 @@ function Game({ username, onLoggedOut }) {
                   ? 'Vend automatiquement le blé quand le silo est presque plein, contre une taxe.'
                   : `Vend automatiquement tout le blé dès que le silo atteint ${Math.round(COURTIER_THRESHOLD * 100)}% de sa capacité. Taxe actuelle : ${Math.round(courtierTax(state) * 100)}%. Vendre à la main reste plus rentable (jamais de taxe).`;
               }
+              const gated = (key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(state.plots);
+              const afford = state.money >= cost;
+              let icon = null;
+              if (key === 'moissonneuse') icon = harvesterSprite(u.level);
+              else if (key === 'semoirMeca') icon = seederSprite(u.level);
               return (
                 <div className="upgrade" key={key}>
                   <div className="upgrade-top">
-                    <span className="upgrade-name">{def.name}</span>
+                    <span className="upgrade-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {icon && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={icon} alt="" style={{ height: '1.3em', width: 'auto', imageRendering: 'pixelated' }} />
+                      )}
+                      {def.name}
+                    </span>
                     <span className="upgrade-level">Niv. {u.level}{maxed ? ' (max)' : `/${def.max}`}</span>
                   </div>
                   <div className="upgrade-desc">{desc}</div>
-                  <button className="full-btn" disabled={maxed} onClick={() => buyUpgrade(key)}>
-                    {maxed ? 'Investissement maximal' : `Investir — ${cost}p`}
-                  </button>
+                  <InvestButton maxed={maxed} afford={afford && !gated} cost={cost} onClick={() => buyUpgrade(key)} />
                 </div>
               );
             })}
@@ -704,7 +738,7 @@ function Plot({ plot, cost, money, growTime, onClick }) {
   );
 }
 
-function ModeToggle({ label, value, onChange, combineLabel }) {
+function ModeToggle({ label, value, onChange, combineLabel, combineIcon }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.78rem', color: '#a8a498', marginBottom: 10 }}>
       <span style={{ minWidth: 112, display: 'inline-block' }}>{label}</span>
@@ -717,11 +751,40 @@ function ModeToggle({ label, value, onChange, combineLabel }) {
         </button>
         <button
           onClick={() => onChange('combine')}
-          style={value === 'combine' ? { background: 'var(--gold)', color: 'var(--ink)' } : undefined}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            ...(value === 'combine' ? { background: 'var(--gold)', color: 'var(--ink)' } : {}),
+          }}
         >
+          {combineIcon && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={combineIcon} alt="" style={{ height: '1.2em', width: 'auto', imageRendering: 'pixelated' }} />
+          )}
           {combineLabel}
         </button>
       </div>
     </div>
+  );
+}
+
+function InvestButton({ maxed, afford, cost, onClick }) {
+  const sprite = maxed ? '/sprites/btn-max.webp' : afford ? '/sprites/btn-on.webp' : '/sprites/btn-off.webp';
+  const color = maxed ? 'var(--ink)' : afford ? 'var(--paper)' : '#5a584f';
+  return (
+    <button
+      className="full-btn"
+      disabled={maxed}
+      onClick={onClick}
+      style={{
+        backgroundImage: `url(${sprite})`,
+        backgroundSize: '100% 100%',
+        backgroundColor: 'transparent',
+        border: 'none',
+        color,
+        fontWeight: maxed ? 700 : 600,
+      }}
+    >
+      {maxed ? 'Investissement maximal' : `Investir — ${cost}p`}
+    </button>
   );
 }
