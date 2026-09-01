@@ -230,13 +230,48 @@ function Game({ username, onLoggedOut }) {
     refreshLeaderboard();
   }, [refreshLeaderboard]);
 
-  // Purely visual re-render trigger: playtime and the live p/s indicator
-  // change every second even when nothing in `state` itself changes.
+  // Purely visual re-render trigger: playtime, the live p/s indicator, and
+  // the ouvrier/semeur progress bars all change continuously even when
+  // nothing in `state` itself changes. 300ms keeps the progress bars smooth.
   const [, forceTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => forceTick((t) => t + 1), 1000);
+    const id = setInterval(() => forceTick((t) => t + 1), 300);
     return () => clearInterval(id);
   }, []);
+
+  // --- Visual-only feedback: floating "+X" gains, worker/sower ring
+  // flashes, and the 2x2 hover preview for the machines. None of this is
+  // persisted — it's purely reactive game feel layered on top of `state`.
+  const fieldRef = useRef(null);
+  const [previewBlock, setPreviewBlock] = useState([]);
+  const [flashes, setFlashes] = useState([]); // [{id, idx, type: 'worker'|'sower'}]
+  const flashIdRef = useRef(0);
+  const [floatingGains, setFloatingGains] = useState([]); // [{id, left, top, text, cls}]
+  const gainIdRef = useRef(0);
+
+  function addFlash(idx, type) {
+    const id = ++flashIdRef.current;
+    setFlashes((prev) => [...prev, { id, idx, type }]);
+    setTimeout(() => setFlashes((prev) => prev.filter((f) => f.id !== id)), 650);
+  }
+
+  function spawnFloatingGain(idx, text, cls) {
+    const el = fieldRef.current?.children[idx];
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const id = ++gainIdRef.current;
+    setFloatingGains((prev) => [...prev, { id, left: rect.left + rect.width / 2, top: rect.top, text, cls }]);
+    setTimeout(() => setFloatingGains((prev) => prev.filter((g) => g.id !== id)), 950);
+  }
+
+  function updatePreview(idx) {
+    const plot = state?.plots[idx];
+    if (!plot) return setPreviewBlock([]);
+    const wantsHarvestPreview = plot.state === 'ready' && harvestMode === 'combine' && state.upgrades.moissonneuse.level > 0;
+    const wantsSowPreview = plot.state === 'empty' && sowMode === 'combine' && state.upgrades.semoirMeca.level > 0;
+    if (!wantsHarvestPreview && !wantsSowPreview) return setPreviewBlock([]);
+    setPreviewBlock(get2x2Block(idx, state.farmCols, state.farmRows));
+  }
 
   // Growth tick + automation (ouvrier agricole / semeur automatique).
   const harvestCursorRef = useRef(-1);
@@ -287,6 +322,8 @@ function Game({ username, onLoggedOut }) {
               statLost += amount - added;
               harvestCursorRef.current = idx;
               changed = true;
+              addFlash(idx, 'worker');
+              if (added > 0) spawnFloatingGain(idx, `+${added} 🌾`, 'gain-wheat');
             }
             lastHarvestRef.current = Date.now();
           }
@@ -305,6 +342,7 @@ function Game({ username, onLoggedOut }) {
               sowCursorRef.current = idx;
               changed = true;
               dirtyRef.current = true;
+              addFlash(idx, 'sower');
             }
             lastSowRef.current = Date.now();
           }
@@ -456,6 +494,7 @@ function Game({ username, onLoggedOut }) {
   }
 
   function harvest(i) {
+    const results = [];
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
@@ -480,6 +519,7 @@ function Game({ username, onLoggedOut }) {
         wheat += added;
         harvested += added;
         plots[idx] = { state: 'empty', plantedAt: null };
+        results.push({ idx, added });
       });
       if (!touched) return prev;
       markDirty();
@@ -493,6 +533,9 @@ function Game({ username, onLoggedOut }) {
           totalWheatLost: prev.stats.totalWheatLost + lost,
         },
       };
+    });
+    results.forEach(({ idx, added }) => {
+      if (added > 0) spawnFloatingGain(idx, `+${added} 🌾`, 'gain-wheat');
     });
   }
 
@@ -643,6 +686,10 @@ function Game({ username, onLoggedOut }) {
   const idealCadence = owned > 0 ? growTimeSeconds(state) / owned : growTimeSeconds(state);
   const sowerInterval = semeurInterval(state);
   const harvestInterval = ouvrierInterval(state);
+  const harvestProgress = harvestInterval && lastHarvestRef.current
+    ? Math.min(1, (Date.now() - lastHarvestRef.current) / (harvestInterval * 1000)) : 0;
+  const sowProgress = sowerInterval && lastSowRef.current
+    ? Math.min(1, (Date.now() - lastSowRef.current) / (sowerInterval * 1000)) : 0;
 
   return (
     <>
@@ -681,6 +728,12 @@ function Game({ username, onLoggedOut }) {
             <div className="field-caption">
               Clique une parcelle libre pour l&rsquo;acheter, une parcelle semée pour la récolter.
             </div>
+            {state.upgrades.ouvrier.level > 0 && (
+              <AutoTimerBar label="Ouvrier — prochaine récolte" progress={harvestProgress} colorVar="--gold" />
+            )}
+            {state.upgrades.semeur.level > 0 && (
+              <AutoTimerBar label="Semeur — prochain semis" progress={sowProgress} colorVar="--gold-bright" />
+            )}
             {state.upgrades.moissonneuse.level > 0 && (
               <ModeToggle
                 label="Mode de récolte :"
@@ -699,10 +752,18 @@ function Game({ username, onLoggedOut }) {
                 combineIcon={seederSprite(state.upgrades.semoirMeca.level)}
               />
             )}
-            <div className="field" style={{ gridTemplateColumns: `repeat(${state.farmCols}, 1fr)` }}>
+            <div
+              className="field"
+              ref={fieldRef}
+              style={{ gridTemplateColumns: `repeat(${state.farmCols}, 1fr)` }}
+              onMouseLeave={() => setPreviewBlock([])}
+            >
               {state.plots.map((p, i) => (
                 <Plot key={i} plot={p} cost={nextPlotCost} money={state.money}
                   growTime={growTimeSeconds(state)}
+                  preview={previewBlock.includes(i)}
+                  flash={flashes.find((f) => f.idx === i)?.type}
+                  onMouseEnter={() => updatePreview(i)}
                   onClick={() => {
                     if (p.state === 'locked') buyPlot(i);
                     else if (p.state === 'empty') plant(i);
@@ -713,6 +774,16 @@ function Game({ username, onLoggedOut }) {
             </div>
           </div>
         )}
+
+        {floatingGains.map((g) => (
+          <div
+            key={g.id}
+            className={`floating-gain ${g.cls || ''}`}
+            style={{ left: g.left, top: g.top }}
+          >
+            {g.text}
+          </div>
+        ))}
 
         <div className="ledger panel-col-left">
           <Section title="Parcelles">
@@ -780,6 +851,16 @@ function Game({ username, onLoggedOut }) {
           <Section title="Exploitation">
             <div className="row"><span>Génération</span><span>{state.generation}</span></div>
             <div className="row"><span>Taille du terrain</span><span>{state.farmCols} × {state.farmRows}</span></div>
+            <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', margin: '6px 0 8px', lineHeight: 1.4 }}>
+              Vendre l&rsquo;exploitation convertit tes parcelles et technologies en trésorerie (40% de ce
+              que tu as investi), remet tout à zéro, et te fait passer à la génération suivante — plus
+              chère, mais plus efficace.
+            </p>
+            <p style={{ fontSize: '0.72rem', color: 'var(--warn)', margin: '0 0 10px', lineHeight: 1.4, fontWeight: 600 }}>
+              ⚠ Attention : si tu n&rsquo;as pas assez amassé, tu risques de ne pas pouvoir te repayer
+              qu&rsquo;une exploitation de la même taille, voire de repartir presque de zéro. Vérifie ta
+              trésorerie avant de confirmer.
+            </p>
             <button
               className={`full-btn ${sellFarmArmed ? 'armed' : ''}`}
               disabled={state.gamePhase !== 'playing'}
@@ -969,11 +1050,13 @@ function LockIcon() {
   );
 }
 
-function Plot({ plot, cost, money, growTime, onClick }) {
+function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnter }) {
+  const flashClass = flash === 'worker' ? 'worker-flash' : flash === 'sower' ? 'sower-flash' : '';
+  const previewClass = preview ? 'harvest-preview' : '';
   if (plot.state === 'locked') {
     const affordable = money >= cost;
     return (
-      <div className={`plot locked ${affordable ? 'affordable' : ''}`} onClick={onClick}>
+      <div className={`plot locked ${affordable ? 'affordable' : ''}`} onClick={onClick} onMouseEnter={onMouseEnter}>
         <LockIcon />
         <span className="plot-price">{cost}p</span>
       </div>
@@ -981,7 +1064,12 @@ function Plot({ plot, cost, money, growTime, onClick }) {
   }
   if (plot.state === 'empty') {
     return (
-      <div className="plot empty" style={{ backgroundImage: 'url(/sprites/field-soil.webp)' }} onClick={onClick}>
+      <div
+        className={`plot empty ${previewClass} ${flashClass}`}
+        style={{ backgroundImage: 'url(/sprites/field-soil.webp)' }}
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+      >
         <span className="plot-price">{SEED_COST}p</span>
       </div>
     );
@@ -990,13 +1078,29 @@ function Plot({ plot, cost, money, growTime, onClick }) {
     const progress = Math.min(1, (Date.now() - plot.plantedAt) / (growTime * 1000));
     const sprite = progress < 0.5 ? 'field-sown' : 'field-growing';
     return (
-      <div className="plot growing" style={{ backgroundImage: `url(/sprites/${sprite}.webp)` }}>
+      <div className={`plot growing ${flashClass}`} style={{ backgroundImage: `url(/sprites/${sprite}.webp)` }} onMouseEnter={onMouseEnter}>
         <span className="plot-bar"><span className="plot-bar-fill" style={{ width: `${progress * 100}%` }} /></span>
       </div>
     );
   }
   return (
-    <div className="plot ready" style={{ backgroundImage: 'url(/sprites/field-ready.webp)' }} onClick={onClick} />
+    <div
+      className={`plot ready ${previewClass} ${flashClass}`}
+      style={{ backgroundImage: 'url(/sprites/field-ready.webp)' }}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+    />
+  );
+}
+
+function AutoTimerBar({ label, progress, colorVar }) {
+  return (
+    <div className="auto-timer-row">
+      <span className="label">{label}</span>
+      <div className="auto-timer-track">
+        <div className="auto-timer-fill" style={{ width: `${Math.round(progress * 100)}%`, background: `var(${colorVar})` }} />
+      </div>
+    </div>
   );
 }
 
