@@ -15,6 +15,10 @@ import {
   yieldAmount,
   siloCap,
   upgradeCost,
+  ouvrierInterval,
+  semeurInterval,
+  findNextIndex,
+  normalizeState,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -191,7 +195,7 @@ function Game({ username, onLoggedOut }) {
       }
       const data = await res.json();
       if (cancelled) return;
-      setState(data.state);
+      setState(normalizeState(data.state));
       setBestScore(data.bestScore || 0);
     }
     load();
@@ -208,22 +212,71 @@ function Game({ username, onLoggedOut }) {
     refreshLeaderboard();
   }, [refreshLeaderboard]);
 
-  // Growth tick.
+  // Growth tick + automation (ouvrier agricole / semeur automatique).
+  const harvestCursorRef = useRef(-1);
+  const sowCursorRef = useRef(-1);
+  const lastHarvestRef = useRef(0);
+  const lastSowRef = useRef(0);
+
   useEffect(() => {
     const id = setInterval(() => {
       setState((prev) => {
         if (!prev) return prev;
         const gt = growTimeSeconds(prev) * 1000;
+        let plots = prev.plots;
+        let wheat = prev.wheat;
+        let money = prev.money;
         let changed = false;
-        const plots = prev.plots.map((p) => {
+        let logMsg = null;
+
+        const mapped = plots.map((p) => {
           if (p.state === 'growing' && Date.now() - p.plantedAt >= gt) {
             changed = true;
             return { ...p, state: 'ready' };
           }
           return p;
         });
+        if (changed) plots = mapped;
+
+        const hInterval = ouvrierInterval(prev);
+        if (hInterval !== null) {
+          if (!lastHarvestRef.current) lastHarvestRef.current = Date.now();
+          if (Date.now() - lastHarvestRef.current >= hInterval * 1000) {
+            const idx = findNextIndex(plots, harvestCursorRef.current, (p) => p.state === 'ready');
+            if (idx !== -1) {
+              const amount = yieldAmount(prev);
+              const cap = siloCap(prev);
+              const space = cap - wheat;
+              const added = Math.min(amount, Math.max(0, space));
+              if (plots === prev.plots) plots = plots.slice();
+              plots[idx] = { state: 'empty', plantedAt: null };
+              wheat += added;
+              harvestCursorRef.current = idx;
+              changed = true;
+            }
+            lastHarvestRef.current = Date.now();
+          }
+        }
+
+        const sInterval = semeurInterval(prev);
+        if (sInterval !== null) {
+          if (!lastSowRef.current) lastSowRef.current = Date.now();
+          if (Date.now() - lastSowRef.current >= sInterval * 1000) {
+            const idx = findNextIndex(plots, sowCursorRef.current, (p) => p.state === 'empty');
+            if (idx !== -1 && money >= SEED_COST) {
+              if (plots === prev.plots) plots = plots.slice();
+              plots[idx] = { state: 'growing', plantedAt: Date.now() };
+              money -= SEED_COST;
+              sowCursorRef.current = idx;
+              changed = true;
+              dirtyRef.current = true;
+            }
+            lastSowRef.current = Date.now();
+          }
+        }
+
         if (!changed) return prev;
-        return { ...prev, plots };
+        return { ...prev, plots, wheat, money };
       });
     }, 300);
     return () => clearInterval(id);
@@ -471,13 +524,23 @@ function Game({ username, onLoggedOut }) {
               const u = state.upgrades[key];
               const maxed = u.level >= def.max;
               const cost = upgradeCost(key, u.level);
+              let desc = def.desc;
+              if (key === 'ouvrier') {
+                desc = u.level <= 0
+                  ? "Aucun ouvrier pour l'instant : il faut récolter les parcelles prêtes toi-même."
+                  : `Récolte une parcelle prête toutes les ${ouvrierInterval(state).toFixed(1)} s.`;
+              } else if (key === 'semeur') {
+                desc = u.level <= 0
+                  ? "Aucun semeur pour l'instant : les parcelles vides restent vides tant que tu ne sèmes pas toi-même."
+                  : `Sème une parcelle vide toutes les ${semeurInterval(state).toFixed(1)} s.`;
+              }
               return (
                 <div className="upgrade" key={key}>
                   <div className="upgrade-top">
                     <span className="upgrade-name">{def.name}</span>
                     <span className="upgrade-level">Niv. {u.level}{maxed ? ' (max)' : `/${def.max}`}</span>
                   </div>
-                  <div className="upgrade-desc">{def.desc}</div>
+                  <div className="upgrade-desc">{desc}</div>
                   <button className="full-btn" disabled={maxed} onClick={() => buyUpgrade(key)}>
                     {maxed ? 'Investissement maximal' : `Investir — ${cost}p`}
                   </button>
