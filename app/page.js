@@ -138,6 +138,8 @@ function Game({ username, onLoggedOut }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [log, setLog] = useState([]);
   const [resetArmed, setResetArmed] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   const dirtyRef = useRef(false);
   const stateRef = useRef(null);
   stateRef.current = state;
@@ -146,19 +148,55 @@ function Game({ username, onLoggedOut }) {
     setLog((prev) => [msg, ...prev].slice(0, 8));
   }, []);
 
-  // Load the account's save on mount.
+  // Load the account's save on mount. Every branch here is explicit on
+  // purpose: silently falling back to a fresh game on *any* fetch problem
+  // (a dropped session, a Supabase misconfiguration, a network hiccup) is
+  // exactly what made reloads look like "my progress isn't saved" before.
   useEffect(() => {
-    fetch('/api/game/state')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.state) {
-          setState(data.state);
-          setBestScore(data.bestScore || 0);
-        } else {
-          setState(initialState());
+    let cancelled = false;
+    async function load() {
+      let res;
+      try {
+        res = await fetch('/api/game/state');
+      } catch {
+        if (!cancelled) setLoadError('Impossible de joindre le serveur. Vérifie ta connexion et recharge la page.');
+        return;
+      }
+      if (res.status === 401) {
+        if (!cancelled) { setLoadError(null); onLoggedOut(); }
+        return;
+      }
+      if (res.status === 404) {
+        // Genuinely no save yet for this account: start fresh and persist
+        // that starting point immediately, so the next reload finds it.
+        const fresh = initialState();
+        if (cancelled) return;
+        setState(fresh);
+        setBestScore(0);
+        try {
+          const saveRes = await fetch('/api/game/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: fresh, bestScore: 0 }),
+          });
+          if (!saveRes.ok) throw new Error('save failed');
+        } catch {
+          if (!cancelled) setLoadError("La partie n'a pas pu être créée sur le serveur. Recharge la page pour réessayer.");
         }
-      });
-  }, []);
+        return;
+      }
+      if (!res.ok) {
+        if (!cancelled) setLoadError(`Le serveur a répondu une erreur (${res.status}). Ta progression n'a pas été perdue, mais elle n'a pas pu être chargée — réessaie de recharger la page.`);
+        return;
+      }
+      const data = await res.json();
+      if (cancelled) return;
+      setState(data.state);
+      setBestScore(data.bestScore || 0);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [onLoggedOut]);
 
   const refreshLeaderboard = useCallback(() => {
     fetch('/api/leaderboard')
@@ -193,17 +231,29 @@ function Game({ username, onLoggedOut }) {
 
   // Autosave loop.
   useEffect(() => {
-    const id = setInterval(() => {
+    const id = setInterval(async () => {
       if (dirtyRef.current && stateRef.current) {
         dirtyRef.current = false;
         const money = Math.round(stateRef.current.money);
         const newBest = Math.max(bestScore, money);
         if (newBest !== bestScore) setBestScore(newBest);
-        fetch('/api/game/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: stateRef.current, bestScore: newBest }),
-        }).then(() => refreshLeaderboard());
+        try {
+          const res = await fetch('/api/game/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: stateRef.current, bestScore: newBest }),
+          });
+          if (!res.ok) {
+            dirtyRef.current = true; // retry on the next tick instead of losing the change
+            setSaveError(`La sauvegarde a échoué (erreur ${res.status}). Nouvelle tentative dans quelques secondes — ne ferme pas cette page.`);
+            return;
+          }
+          setSaveError(null);
+          refreshLeaderboard();
+        } catch {
+          dirtyRef.current = true;
+          setSaveError('Impossible de joindre le serveur pour sauvegarder. Nouvelle tentative dans quelques secondes — ne ferme pas cette page.');
+        }
       }
     }, 4000);
     return () => clearInterval(id);
@@ -212,6 +262,29 @@ function Game({ username, onLoggedOut }) {
   function markDirty() {
     dirtyRef.current = true;
   }
+
+  // Best-effort save if the tab is closed/reloaded before the next autosave
+  // tick — keepalive lets the request survive the page unloading.
+  useEffect(() => {
+    function handleUnload() {
+      if (dirtyRef.current && stateRef.current) {
+        const money = Math.round(stateRef.current.money);
+        const newBest = Math.max(bestScore, money);
+        fetch('/api/game/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: stateRef.current, bestScore: newBest }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    }
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+    };
+  }, [bestScore]);
 
   function buyPlot(i) {
     setState((prev) => {
@@ -308,7 +381,23 @@ function Game({ username, onLoggedOut }) {
     markDirty();
   }
 
-  if (!state) return null;
+  if (!state) {
+    return (
+      <div className="auth-wrap">
+        <div className="auth-card">
+          <h1>Wheat2Wealth</h1>
+          {loadError ? (
+            <>
+              <p style={{ color: 'var(--alert)' }}>{loadError}</p>
+              <button className="full-btn" onClick={() => window.location.reload()}>Recharger la page</button>
+            </>
+          ) : (
+            <p>Chargement de ta ferme…</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const owned = ownedCount(state.plots);
   const nextPlotCost = plotCost(state.plots);
@@ -332,6 +421,12 @@ function Game({ username, onLoggedOut }) {
           </div>
         </div>
       </div>
+
+      {saveError && (
+        <div style={{ background: 'var(--alert)', color: '#fff', padding: '8px 20px', fontSize: '0.8rem', textAlign: 'center' }}>
+          ⚠ {saveError}
+        </div>
+      )}
 
       <div className="layout">
         <div className="field-wrap">
