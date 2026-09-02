@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   FREE_PLOTS,
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
   SELL_PRICE,
   SEED_COST,
   UPGRADE_DEFS,
@@ -25,6 +27,7 @@ import {
   courtierTax,
   COURTIER_THRESHOLD,
   computeResaleValue,
+  rebuildCost,
   choiceTierCount,
   choiceTierCost,
   harvesterSprite,
@@ -245,6 +248,7 @@ function Game({ username, onLoggedOut }) {
   // flashes, and the full-row hover preview for the machines. None of this is
   // persisted — it's purely reactive game feel layered on top of `state`.
   const fieldRef = useRef(null);
+  const sellBtnRef = useRef(null);
   const [previewBlock, setPreviewBlock] = useState([]);
   const [flashes, setFlashes] = useState([]); // [{id, idx, type: 'worker'|'sower'}]
   const flashIdRef = useRef(0);
@@ -267,6 +271,9 @@ function Game({ username, onLoggedOut }) {
   function queueGain(idx, text, cls) {
     pendingEffectsRef.current.push({ kind: 'gain', idx, text, cls });
   }
+  function queueMoneyGain(amount) {
+    pendingEffectsRef.current.push({ kind: 'moneyGain', amount });
+  }
   function queueSound(name) {
     pendingEffectsRef.current.push({ kind: 'sound', name });
   }
@@ -277,13 +284,22 @@ function Game({ username, onLoggedOut }) {
     setTimeout(() => setFlashes((prev) => prev.filter((f) => f.id !== id)), 650);
   }
 
+  function spawnFloatingGainFromRect(rect, data) {
+    const id = ++gainIdRef.current;
+    setFloatingGains((prev) => [...prev, { id, left: rect.left + rect.width / 2, top: rect.top, ...data }]);
+    setTimeout(() => setFloatingGains((prev) => prev.filter((g) => g.id !== id)), 950);
+  }
+
   function spawnFloatingGain(idx, text, cls) {
     const el = fieldRef.current?.children[idx];
     if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const id = ++gainIdRef.current;
-    setFloatingGains((prev) => [...prev, { id, left: rect.left + rect.width / 2, top: rect.top, text, cls }]);
-    setTimeout(() => setFloatingGains((prev) => prev.filter((g) => g.id !== id)), 950);
+    spawnFloatingGainFromRect(el.getBoundingClientRect(), { kind: 'text', text, cls });
+  }
+
+  function spawnMoneyGain(amount) {
+    const el = sellBtnRef.current;
+    if (!el) return;
+    spawnFloatingGainFromRect(el.getBoundingClientRect(), { kind: 'money', amount });
   }
 
   // Runs after every render (deliberately no dependency array): flushes
@@ -296,6 +312,7 @@ function Game({ username, onLoggedOut }) {
     queue.forEach((effect) => {
       if (effect.kind === 'flash') addFlash(effect.idx, effect.type);
       else if (effect.kind === 'gain') spawnFloatingGain(effect.idx, effect.text, effect.cls);
+      else if (effect.kind === 'moneyGain') spawnMoneyGain(effect.amount);
       else if (effect.kind === 'sound') {
         const ref = effect.name === 'manualSold' ? manualAudioRef : courtierAudioRef;
         const el = ref.current;
@@ -445,6 +462,7 @@ function Game({ username, onLoggedOut }) {
             changed = true;
             dirtyRef.current = true;
             queueSound('courtierSold');
+            queueMoneyGain(total);
           }
         }
 
@@ -626,6 +644,7 @@ function Game({ username, onLoggedOut }) {
       pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p.`);
       markDirty();
       queueSound('manualSold');
+      queueMoneyGain(total);
       return {
         ...prev,
         money: prev.money + total,
@@ -782,6 +801,24 @@ function Game({ username, onLoggedOut }) {
     });
   }
 
+  // The original starting size is always available for free — a hard floor
+  // so a player who mismanaged a generation can never be permanently
+  // stuck unable to afford any farm at all.
+  function chooseBaseFarm() {
+    setState((prev) => {
+      if (!prev) return prev;
+      pushLog(`Nouvelle exploitation choisie : ${DEFAULT_COLS} × ${DEFAULT_ROWS} parcelles (gratuite).`);
+      markDirty();
+      return {
+        ...prev,
+        farmCols: DEFAULT_COLS,
+        farmRows: DEFAULT_ROWS,
+        plots: freshPlots(DEFAULT_COLS, DEFAULT_ROWS),
+        gamePhase: 'playing',
+      };
+    });
+  }
+
   if (!state) {
     return (
       <div className="auth-wrap">
@@ -878,7 +915,7 @@ function Game({ username, onLoggedOut }) {
 
       <div className="layout">
         {state.gamePhase === 'choosing' ? (
-          <FarmChoiceScreen state={state} onChoose={chooseFarm} />
+          <FarmChoiceScreen state={state} onChoose={chooseFarm} onChooseBase={chooseBaseFarm} />
         ) : (
           <div className="field-wrap">
             <div className="field-caption">
@@ -946,10 +983,16 @@ function Game({ username, onLoggedOut }) {
         {floatingGains.map((g) => (
           <div
             key={g.id}
-            className={`floating-gain ${g.cls || ''}`}
+            className={`floating-gain ${g.kind === 'money' ? 'gain-money' : g.cls || ''}`}
             style={{ left: g.left, top: g.top }}
           >
-            {g.text}
+            {g.kind === 'money' ? (
+              <>
+                +{g.amount.toLocaleString()}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/sprites/currency.webp" alt="p" className="currency-icon-inline" />
+              </>
+            ) : g.text}
           </div>
         ))}
 
@@ -964,6 +1007,7 @@ function Game({ username, onLoggedOut }) {
             <SiloBar wheat={state.wheat} cap={siloCap(state)} />
             <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
             <button
+              ref={sellBtnRef}
               className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''}`}
               disabled={state.wheat <= 0}
               onClick={sell}
@@ -999,10 +1043,15 @@ function Game({ username, onLoggedOut }) {
               que tu as investi), remet tout à zéro, et te fait passer à la génération suivante — plus
               chère, mais plus efficace.
             </p>
-            <p style={{ fontSize: '0.72rem', color: 'var(--warn)', margin: '0 0 10px', lineHeight: 1.4, fontWeight: 600 }}>
-              ⚠ Attention : si tu n&rsquo;as pas assez amassé, tu risques de ne pas pouvoir te repayer
-              qu&rsquo;une exploitation de la même taille, voire de repartir presque de zéro. Vérifie ta
-              trésorerie avant de confirmer.
+            <div className="row"><span>Trésorerie post-vente</span><span>{(state.money + computeResaleValue(state)).toLocaleString()} p</span></div>
+            <div className="row">
+              <span>Exploitation même taille (gén. {state.generation + 1})</span>
+              <span>{rebuildCost(state.farmCols, state.farmRows, { ...state, generation: state.generation + 1 }).toLocaleString()} p</span>
+            </div>
+            <p style={{ fontSize: '0.72rem', color: 'var(--warn)', margin: '8px 0 10px', lineHeight: 1.4, fontWeight: 600 }}>
+              ⚠ Si ta trésorerie post-vente ne couvre pas ce prix, tu ne pourras reprendre qu&rsquo;une
+              exploitation plus petite. L&rsquo;exploitation de départ ({DEFAULT_COLS}×{DEFAULT_ROWS})
+              reste cependant toujours gratuite, quoi qu&rsquo;il arrive.
             </p>
             <button
               className={`full-btn ${sellFarmArmed ? 'armed' : ''}`}
@@ -1358,17 +1407,41 @@ function InvestButton({ maxed, afford, cost, onClick }) {
   );
 }
 
-function FarmChoiceScreen({ state, onChoose }) {
+function FarmChoiceScreen({ state, onChoose, onChooseBase }) {
   const tiers = choiceTierCount(state);
+  const alreadyAtBase = state.farmCols === DEFAULT_COLS && state.farmRows === DEFAULT_ROWS;
+  // Skip the paid "same size" card when it would be identical to the free
+  // base option below — no point offering the same 6x6 farm twice.
+  const startTier = alreadyAtBase ? 1 : 0;
   return (
     <div className="field-wrap">
       <h2>Choisis ta nouvelle exploitation</h2>
       <p className="field-caption">
-        Ta trésorerie actuelle finance l&rsquo;achat. Si tu ne peux pas te permettre l&rsquo;exploitation
-        agrandie, tu repars sur une exploitation de même taille.
+        Ta trésorerie actuelle finance l&rsquo;achat. L&rsquo;exploitation de départ (6×6) reste
+        toujours disponible gratuitement, quoi qu&rsquo;il arrive.
       </p>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
-        {Array.from({ length: tiers }, (_, tier) => {
+        <div
+          style={{
+            flex: '1 1 220px', background: 'var(--paper)', color: 'var(--ink)',
+            border: '2px solid var(--gold)', borderRadius: 5, padding: '16px 18px', textAlign: 'center',
+          }}
+        >
+          <h3 style={{ fontFamily: "'Pixelify Sans','Courier New',monospace", margin: '0 0 8px', fontSize: '1rem' }}>
+            Exploitation de départ
+          </h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '0 0 10px' }}>
+            {DEFAULT_COLS} × {DEFAULT_ROWS} parcelles
+          </p>
+          <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--gold)', marginBottom: 12 }}>
+            Gratuite
+          </div>
+          <button className="full-btn" onClick={onChooseBase}>
+            Choisir cette exploitation
+          </button>
+        </div>
+        {Array.from({ length: Math.max(0, tiers - startTier) }, (_, i) => {
+          const tier = i + startTier;
           const cols = state.farmCols + tier;
           const rows = state.farmRows + tier;
           const cost = choiceTierCost(tier, state);

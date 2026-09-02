@@ -156,6 +156,8 @@ input{
   text-shadow:0 1px 3px rgba(0,0,0,0.65);
 }
 .floating-gain.gain-wheat{color:#f2c869; font-size:1.2rem;}
+.floating-gain.gain-money{color:var(--gold-bright); font-size:1.3rem; display:flex; align-items:center; gap:4px;}
+.currency-icon-inline{height:1em; width:auto; image-rendering:pixelated; display:inline-block; vertical-align:middle;}
 .floating-gain.gain-sow{color:var(--gold-bright); font-size:1.15rem;}
 .floating-gain.gain-fail{color:var(--alert); font-size:1.1rem;}
 @keyframes floatUp{
