@@ -249,6 +249,21 @@ function Game({ username, onLoggedOut }) {
   const [floatingGains, setFloatingGains] = useState([]); // [{id, left, top, text, cls}]
   const gainIdRef = useRef(0);
 
+  // Queue of visual effects requested from *inside* a setState updater
+  // (harvest/plant, and the automation tick). Writing to a ref is a plain,
+  // synchronous JS mutation, so it's reliable no matter when React actually
+  // gets around to calling the updater — unlike calling setFlashes/
+  // setFloatingGains directly from in there, which can silently never fire
+  // if the updater turns out to run later than expected. A no-deps effect
+  // below drains this queue after every render.
+  const pendingEffectsRef = useRef([]);
+  function queueFlash(idx, type) {
+    pendingEffectsRef.current.push({ kind: 'flash', idx, type });
+  }
+  function queueGain(idx, text, cls) {
+    pendingEffectsRef.current.push({ kind: 'gain', idx, text, cls });
+  }
+
   function addFlash(idx, type) {
     const id = ++flashIdRef.current;
     setFlashes((prev) => [...prev, { id, idx, type }]);
@@ -263,6 +278,19 @@ function Game({ username, onLoggedOut }) {
     setFloatingGains((prev) => [...prev, { id, left: rect.left + rect.width / 2, top: rect.top, text, cls }]);
     setTimeout(() => setFloatingGains((prev) => prev.filter((g) => g.id !== id)), 950);
   }
+
+  // Runs after every render (deliberately no dependency array): flushes
+  // whatever visual effects were queued by the last state update, however
+  // it got triggered.
+  useEffect(() => {
+    if (pendingEffectsRef.current.length === 0) return;
+    const queue = pendingEffectsRef.current;
+    pendingEffectsRef.current = [];
+    queue.forEach((effect) => {
+      if (effect.kind === 'flash') addFlash(effect.idx, effect.type);
+      else if (effect.kind === 'gain') spawnFloatingGain(effect.idx, effect.text, effect.cls);
+    });
+  });
 
   function updatePreview(idx) {
     const plot = state?.plots[idx];
@@ -322,8 +350,8 @@ function Game({ username, onLoggedOut }) {
               statLost += amount - added;
               harvestCursorRef.current = idx;
               changed = true;
-              addFlash(idx, 'worker');
-              if (added > 0) spawnFloatingGain(idx, `+${added} 🌾`, 'gain-wheat');
+              queueFlash(idx, 'worker');
+              if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
             }
             lastHarvestRef.current = Date.now();
           }
@@ -342,8 +370,8 @@ function Game({ username, onLoggedOut }) {
               sowCursorRef.current = idx;
               changed = true;
               dirtyRef.current = true;
-              addFlash(idx, 'sower');
-              spawnFloatingGain(idx, '🌱', 'gain-sow');
+              queueFlash(idx, 'sower');
+              queueGain(idx, '🌱', 'gain-sow');
             }
             lastSowRef.current = Date.now();
           }
@@ -465,7 +493,6 @@ function Game({ username, onLoggedOut }) {
   }
 
   function plant(i) {
-    const results = []; // {idx, success}
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
@@ -482,10 +509,10 @@ function Game({ username, onLoggedOut }) {
         spent += SEED_COST;
         if (useCombine && Math.random() < semoirMecaFailChance(prev)) {
           pushLog("Semis raté : la graine n'a pas pris (semoir mécanique).");
-          results.push({ idx, success: false });
+          queueGain(idx, '✕', 'gain-fail');
         } else {
           plots[idx] = { state: 'growing', plantedAt: Date.now() };
-          results.push({ idx, success: true });
+          queueGain(idx, '🌱', 'gain-sow');
         }
       });
       if (!attempted) {
@@ -495,13 +522,9 @@ function Game({ username, onLoggedOut }) {
       markDirty();
       return { ...prev, money, plots, stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + spent } };
     });
-    results.forEach(({ idx, success }) => {
-      spawnFloatingGain(idx, success ? '🌱' : '✕', success ? 'gain-sow' : 'gain-fail');
-    });
   }
 
   function harvest(i) {
-    const results = [];
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
@@ -526,7 +549,7 @@ function Game({ username, onLoggedOut }) {
         wheat += added;
         harvested += added;
         plots[idx] = { state: 'empty', plantedAt: null };
-        results.push({ idx, added });
+        if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
       });
       if (!touched) return prev;
       markDirty();
@@ -540,9 +563,6 @@ function Game({ username, onLoggedOut }) {
           totalWheatLost: prev.stats.totalWheatLost + lost,
         },
       };
-    });
-    results.forEach(({ idx, added }) => {
-      if (added > 0) spawnFloatingGain(idx, `+${added} 🌾`, 'gain-wheat');
     });
   }
 
@@ -800,7 +820,7 @@ function Game({ username, onLoggedOut }) {
           </Section>
           <hr />
           <Section title="Silo">
-            <div className="row"><span>Blé stocké</span><span>{state.wheat} / {siloCap(state)}</span></div>
+            <SiloBar wheat={state.wheat} cap={siloCap(state)} />
             <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
             <button
               className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''}`}
@@ -1097,6 +1117,20 @@ function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnt
       onClick={onClick}
       onMouseEnter={onMouseEnter}
     />
+  );
+}
+
+function SiloBar({ wheat, cap }) {
+  const pct = cap > 0 ? Math.min(100, (wheat / cap) * 100) : 0;
+  const textClass = pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : '';
+  return (
+    <div className="silo-bar-wrap">
+      <div className="silo-bar-label">Blé stocké</div>
+      <div className="silo-bar-track">
+        <div className="silo-bar-fill" style={{ width: `${pct}%` }} />
+        <span className={`silo-bar-text ${textClass}`}>{wheat} / {cap}</span>
+      </div>
+    </div>
   );
 }
 
