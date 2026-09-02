@@ -82,11 +82,17 @@ input{
 .topbar h1{font-size:1.4rem; color:var(--gold-bright); justify-self:start;}
 .topbar-treasury{
   justify-self:center; text-align:center;
+  display:flex; align-items:center; gap:14px;
   font-family:'Pixelify Sans','Courier New',monospace;
   font-size:1.5rem; font-weight:700; color:var(--paper);
   white-space:nowrap;
 }
-.topbar-treasury span{color:var(--gold-bright);}
+.topbar-treasury .value{color:var(--gold-bright);}
+.topbar-treasury .rate-badge{
+  font-family:'Courier New',monospace;
+  font-size:0.8rem; font-weight:700; color:var(--gold);
+  border:1px solid rgba(138,160,102,0.4); border-radius:3px; padding:4px 10px;
+}
 .top-right{justify-self:end; display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-size:0.8rem;}
 .link-btn{background:none; border:none; color:var(--gold-bright); text-decoration:underline; cursor:pointer; font-family:inherit; font-size:0.75rem; padding:0;}
 .link-btn.armed{color:var(--alert); font-weight:700; text-decoration:none;}
@@ -200,7 +206,7 @@ input{
 .leaderboard{list-style:none; margin:0; padding:0;}
 .leaderboard li{display:flex; justify-content:space-between; font-size:0.82rem; padding:5px 0; border-bottom:1px solid rgba(0,0,0,.06);}
 .leaderboard li.me{font-weight:700; color:#5f7a45;}
-.leaderboard .rank{width:22px; color:var(--ink-soft); font-weight:400;}
+.leaderboard .rank{display:inline-block; width:26px; margin-right:6px; color:var(--ink-soft); font-weight:400;}
 
 .stat-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; margin-top:6px;}
 .stat-grid.stats-wide{grid-template-columns:repeat(auto-fit,minmax(105px,1fr));}

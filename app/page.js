@@ -248,6 +248,7 @@ function Game({ username, onLoggedOut }) {
   const flashIdRef = useRef(0);
   const [floatingGains, setFloatingGains] = useState([]); // [{id, left, top, text, cls}]
   const gainIdRef = useRef(0);
+  const courtierAudioRef = useRef(null);
 
   // Queue of visual effects requested from *inside* a setState updater
   // (harvest/plant, and the automation tick). Writing to a ref is a plain,
@@ -262,6 +263,9 @@ function Game({ username, onLoggedOut }) {
   }
   function queueGain(idx, text, cls) {
     pendingEffectsRef.current.push({ kind: 'gain', idx, text, cls });
+  }
+  function queueSound(name) {
+    pendingEffectsRef.current.push({ kind: 'sound', name });
   }
 
   function addFlash(idx, type) {
@@ -289,6 +293,10 @@ function Game({ username, onLoggedOut }) {
     queue.forEach((effect) => {
       if (effect.kind === 'flash') addFlash(effect.idx, effect.type);
       else if (effect.kind === 'gain') spawnFloatingGain(effect.idx, effect.text, effect.cls);
+      else if (effect.kind === 'sound') {
+        const el = courtierAudioRef.current;
+        if (el) { el.currentTime = 0; el.play().catch(() => {}); }
+      }
     });
   });
 
@@ -392,6 +400,7 @@ function Game({ username, onLoggedOut }) {
             wheat = 0;
             changed = true;
             dirtyRef.current = true;
+            queueSound('courtierSold');
           }
         }
 
@@ -720,10 +729,12 @@ function Game({ username, onLoggedOut }) {
 
   return (
     <>
+      <audio ref={courtierAudioRef} src="/soundEffect/courtierSold.mp3" preload="auto" />
       <div className="topbar">
         <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
         <div className="topbar-treasury">
-          Trésorerie : <span>{Math.round(state.money).toLocaleString()}</span> p
+          <span>Trésorerie : <span className="value">{Math.round(state.money).toLocaleString()}</span> p</span>
+          <span className="rate-badge">{perSecond.toFixed(2)} p/s</span>
         </div>
         <div className="top-right">
           <span>
@@ -735,9 +746,6 @@ function Game({ username, onLoggedOut }) {
           <button className={`link-btn ${resetArmed ? 'armed' : ''}`} onClick={handleReset}>
             {resetArmed ? 'Confirmer ? Tout sera perdu' : 'réinitialiser ma partie'}
           </button>
-          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--gold)', border: '1px solid rgba(138,160,102,0.4)', borderRadius: 3, padding: '4px 10px' }}>
-            {perSecond.toFixed(2)} p/s
-          </div>
         </div>
       </div>
 
@@ -917,7 +925,9 @@ function Game({ username, onLoggedOut }) {
               const maxed = u.level >= def.max;
               const cost = upgradeCost(key, u.level, state);
               let desc = def.desc;
-              if (key === 'ouvrier') {
+              if (key === 'graines') {
+                desc = `Augmente le rendement par récolte. Rendement actuel : ${yieldAmount(state)} unités de blé par parcelle récoltée.`;
+              } else if (key === 'ouvrier') {
                 desc = u.level <= 0
                   ? "Aucun ouvrier pour l'instant : il faut récolter les parcelles prêtes toi-même."
                   : `Récolte une parcelle prête toutes les ${ouvrierInterval(state).toFixed(1)} s.`;
