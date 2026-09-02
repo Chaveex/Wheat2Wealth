@@ -30,6 +30,8 @@ import {
   harvesterSprite,
   seederSprite,
   formatDuration,
+  maxWorkerSlots,
+  workerSlotCost,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -339,10 +341,10 @@ function Game({ username, onLoggedOut }) {
   }
 
   // Growth tick + automation (ouvrier agricole / semeur automatique).
-  const harvestCursorRef = useRef(-1);
-  const sowCursorRef = useRef(-1);
-  const lastHarvestRef = useRef(0);
-  const lastSowRef = useRef(0);
+  const harvestCursorsRef = useRef([-1]);
+  const sowCursorsRef = useRef([-1]);
+  const lastHarvestsRef = useRef([0]);
+  const lastSowsRef = useRef([0]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -372,45 +374,58 @@ function Game({ username, onLoggedOut }) {
 
         const hInterval = ouvrierInterval(prev);
         if (hInterval !== null) {
-          if (!lastHarvestRef.current) lastHarvestRef.current = Date.now();
-          if (Date.now() - lastHarvestRef.current >= hInterval * 1000) {
-            const idx = findNextIndex(plots, harvestCursorRef.current, (p) => p.state === 'ready');
-            if (idx !== -1) {
-              const amount = yieldAmount(prev);
-              const cap = siloCap(prev);
-              const space = cap - wheat;
-              const added = Math.min(amount, Math.max(0, space));
-              if (plots === prev.plots) plots = plots.slice();
-              plots[idx] = { state: 'empty', plantedAt: null };
-              wheat += added;
-              statHarvested += added;
-              statLost += amount - added;
-              harvestCursorRef.current = idx;
-              changed = true;
-              queueFlash(idx, 'worker');
-              if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
+          const workerCount = prev.upgrades.ouvrier.count || 1;
+          while (harvestCursorsRef.current.length < workerCount) harvestCursorsRef.current.push(-1);
+          while (lastHarvestsRef.current.length < workerCount) lastHarvestsRef.current.push(Date.now());
+          for (let w = 0; w < workerCount; w++) {
+            if (!lastHarvestsRef.current[w]) lastHarvestsRef.current[w] = Date.now();
+            if (Date.now() - lastHarvestsRef.current[w] >= hInterval * 1000) {
+              // Sequential on purpose: each worker sees the plots array as
+              // already updated by the ones before it this same tick, so
+              // two workers can never both grab the same ready plot.
+              const idx = findNextIndex(plots, harvestCursorsRef.current[w], (p) => p.state === 'ready');
+              if (idx !== -1) {
+                const amount = yieldAmount(prev);
+                const cap = siloCap(prev);
+                const space = cap - wheat;
+                const added = Math.min(amount, Math.max(0, space));
+                if (plots === prev.plots) plots = plots.slice();
+                plots[idx] = { state: 'empty', plantedAt: null };
+                wheat += added;
+                statHarvested += added;
+                statLost += amount - added;
+                harvestCursorsRef.current[w] = idx;
+                changed = true;
+                queueFlash(idx, 'worker');
+                if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
+              }
+              lastHarvestsRef.current[w] = Date.now();
             }
-            lastHarvestRef.current = Date.now();
           }
         }
 
         const sInterval = semeurInterval(prev);
         if (sInterval !== null) {
-          if (!lastSowRef.current) lastSowRef.current = Date.now();
-          if (Date.now() - lastSowRef.current >= sInterval * 1000) {
-            const idx = findNextIndex(plots, sowCursorRef.current, (p) => p.state === 'empty');
-            if (idx !== -1 && money >= SEED_COST) {
-              if (plots === prev.plots) plots = plots.slice();
-              plots[idx] = { state: 'growing', plantedAt: Date.now() };
-              money -= SEED_COST;
-              statSpent += SEED_COST;
-              sowCursorRef.current = idx;
-              changed = true;
-              dirtyRef.current = true;
-              queueFlash(idx, 'sower');
-              queueGain(idx, '🌱', 'gain-sow');
+          const sowerCount = prev.upgrades.semeur.count || 1;
+          while (sowCursorsRef.current.length < sowerCount) sowCursorsRef.current.push(-1);
+          while (lastSowsRef.current.length < sowerCount) lastSowsRef.current.push(Date.now());
+          for (let w = 0; w < sowerCount; w++) {
+            if (!lastSowsRef.current[w]) lastSowsRef.current[w] = Date.now();
+            if (Date.now() - lastSowsRef.current[w] >= sInterval * 1000) {
+              const idx = findNextIndex(plots, sowCursorsRef.current[w], (p) => p.state === 'empty');
+              if (idx !== -1 && money >= SEED_COST) {
+                if (plots === prev.plots) plots = plots.slice();
+                plots[idx] = { state: 'growing', plantedAt: Date.now() };
+                money -= SEED_COST;
+                statSpent += SEED_COST;
+                sowCursorsRef.current[w] = idx;
+                changed = true;
+                dirtyRef.current = true;
+                queueFlash(idx, 'sower');
+                queueGain(idx, '🌱', 'gain-sow');
+              }
+              lastSowsRef.current[w] = Date.now();
             }
-            lastSowRef.current = Date.now();
           }
         }
 
@@ -646,7 +661,41 @@ function Game({ username, onLoggedOut }) {
       return {
         ...prev,
         money: prev.money - cost,
-        upgrades: { ...prev.upgrades, [key]: { level: u.level + 1, totalInvested: (u.totalInvested || 0) + cost } },
+        upgrades: { ...prev.upgrades, [key]: { ...u, level: u.level + 1, totalInvested: (u.totalInvested || 0) + cost } },
+        stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + cost },
+      };
+    });
+  }
+
+  function hireWorker(key) {
+    setState((prev) => {
+      if (!prev) return prev;
+      const u = prev.upgrades[key];
+      if (u.level <= 0) return prev;
+      const count = u.count || 1;
+      const maxSlots = maxWorkerSlots(prev);
+      if (count >= maxSlots) return prev;
+      const cost = workerSlotCost(count + 1, prev);
+      if (prev.money < cost) {
+        pushLog(`Pas assez de trésorerie pour embaucher un ${key === 'ouvrier' ? 'ouvrier' : 'semeur'} supplémentaire (${cost}p).`);
+        return prev;
+      }
+      const label = key === 'ouvrier' ? 'Ouvrier agricole' : 'Semeur automatique';
+      pushLog(`${label} #${count + 1} embauché pour ${cost}p, au niveau ${u.level}.`);
+      markDirty();
+      // Spread the new worker's starting cursor evenly across the field
+      // instead of 0, so it doesn't start by retracing the first worker's
+      // steps — give it a head start proportional to its slot number.
+      const cursorsRef = key === 'ouvrier' ? harvestCursorsRef : sowCursorsRef;
+      const lastRef = key === 'ouvrier' ? lastHarvestsRef : lastSowsRef;
+      const total = prev.plots.length;
+      const newCount = count + 1;
+      cursorsRef.current[newCount - 1] = Math.floor(((newCount - 1) * total) / newCount) - 1;
+      lastRef.current[newCount - 1] = Date.now();
+      return {
+        ...prev,
+        money: prev.money - cost,
+        upgrades: { ...prev.upgrades, [key]: { ...u, count: newCount } },
         stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + cost },
       };
     });
@@ -669,6 +718,10 @@ function Game({ username, onLoggedOut }) {
     setLog([]);
     pushLog('Partie réinitialisée.');
     markDirty();
+    harvestCursorsRef.current = [-1];
+    lastHarvestsRef.current = [0];
+    sowCursorsRef.current = [-1];
+    lastSowsRef.current = [0];
   }
 
   const [sellFarmArmed, setSellFarmArmed] = useState(false);
@@ -685,6 +738,8 @@ function Game({ username, onLoggedOut }) {
       const value = computeResaleValue(prev);
       const upgrades = {};
       Object.keys(prev.upgrades).forEach((key) => { upgrades[key] = { level: 0, totalInvested: 0 }; });
+      upgrades.ouvrier.count = 1;
+      upgrades.semeur.count = 1;
       pushLog(`Exploitation revendue pour ${value}p. Génération ${prev.generation} : à toi de choisir ta nouvelle exploitation.`);
       markDirty();
       return {
@@ -697,6 +752,12 @@ function Game({ username, onLoggedOut }) {
         gamePhase: 'choosing',
       };
     });
+    // A resale rebuilds from a single worker of each kind — trim the
+    // per-worker cursor/timer arrays back down to match.
+    harvestCursorsRef.current = [-1];
+    lastHarvestsRef.current = [0];
+    sowCursorsRef.current = [-1];
+    lastSowsRef.current = [0];
     setHarvestMode('manual');
     setSowMode('manual');
   }
@@ -752,10 +813,19 @@ function Game({ username, onLoggedOut }) {
   const idealCadence = owned > 0 ? growTimeSeconds(state) / owned : growTimeSeconds(state);
   const sowerInterval = semeurInterval(state);
   const harvestInterval = ouvrierInterval(state);
-  const harvestProgress = harvestInterval && lastHarvestRef.current
-    ? Math.min(1, (Date.now() - lastHarvestRef.current) / (harvestInterval * 1000)) : 0;
-  const sowProgress = sowerInterval && lastSowRef.current
-    ? Math.min(1, (Date.now() - lastSowRef.current) / (sowerInterval * 1000)) : 0;
+  const ouvrierCount = state.upgrades.ouvrier.count || 1;
+  const semeurCount = state.upgrades.semeur.count || 1;
+  const harvestProgresses = Array.from({ length: ouvrierCount }, (_, w) => {
+    const last = lastHarvestsRef.current[w];
+    return harvestInterval && last ? Math.min(1, (Date.now() - last) / (harvestInterval * 1000)) : 0;
+  });
+  const sowProgresses = Array.from({ length: semeurCount }, (_, w) => {
+    const last = lastSowsRef.current[w];
+    return sowerInterval && last ? Math.min(1, (Date.now() - last) / (sowerInterval * 1000)) : 0;
+  });
+  const maxSlots = maxWorkerSlots(state);
+  const nextOuvrierCost = workerSlotCost(ouvrierCount + 1, state);
+  const nextSemeurCost = workerSlotCost(semeurCount + 1, state);
 
   return (
     <>
@@ -804,12 +874,22 @@ function Game({ username, onLoggedOut }) {
             <div className="field-caption">
               Clique une parcelle libre pour l&rsquo;acheter, une parcelle semée pour la récolter.
             </div>
-            {state.upgrades.ouvrier.level > 0 && (
-              <AutoTimerBar label="Ouvrier — prochaine récolte" progress={harvestProgress} colorVar="--gold" />
-            )}
-            {state.upgrades.semeur.level > 0 && (
-              <AutoTimerBar label="Semeur — prochain semis" progress={sowProgress} colorVar="--gold-bright" />
-            )}
+            {state.upgrades.ouvrier.level > 0 && harvestProgresses.map((p, w) => (
+              <AutoTimerBar
+                key={`h${w}`}
+                label={ouvrierCount > 1 ? `Ouvrier #${w + 1} — prochaine récolte` : 'Ouvrier — prochaine récolte'}
+                progress={p}
+                colorVar="--gold"
+              />
+            ))}
+            {state.upgrades.semeur.level > 0 && sowProgresses.map((p, w) => (
+              <AutoTimerBar
+                key={`s${w}`}
+                label={semeurCount > 1 ? `Semeur #${w + 1} — prochain semis` : 'Semeur — prochain semis'}
+                progress={p}
+                colorVar="--gold-bright"
+              />
+            ))}
             {state.upgrades.moissonneuse.level > 0 && (
               <ModeToggle
                 label="Mode de récolte :"
@@ -971,13 +1051,15 @@ function Game({ username, onLoggedOut }) {
               if (key === 'graines') {
                 desc = `Augmente le rendement par récolte. Rendement actuel : ${yieldAmount(state)} unités de blé par parcelle récoltée.`;
               } else if (key === 'ouvrier') {
+                const count = u.count || 1;
                 desc = u.level <= 0
                   ? "Aucun ouvrier pour l'instant : il faut récolter les parcelles prêtes toi-même."
-                  : `Récolte une parcelle prête toutes les ${ouvrierInterval(state).toFixed(1)} s.`;
+                  : `Récolte une parcelle prête toutes les ${ouvrierInterval(state).toFixed(1)} s. ${count > 1 ? `${count} ouvriers actifs.` : '1 ouvrier actif.'}`;
               } else if (key === 'semeur') {
+                const count = u.count || 1;
                 desc = u.level <= 0
                   ? "Aucun semeur pour l'instant : les parcelles vides restent vides tant que tu ne sèmes pas toi-même."
-                  : `Sème une parcelle vide toutes les ${semeurInterval(state).toFixed(1)} s.`;
+                  : `Sème une parcelle vide toutes les ${semeurInterval(state).toFixed(1)} s. ${count > 1 ? `${count} semeurs actifs.` : '1 semeur actif.'}`;
               } else if (key === 'moissonneuse') {
                 desc = u.level <= 0
                   ? "Débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles achetées pour pouvoir l'acheter."
@@ -1010,6 +1092,19 @@ function Game({ username, onLoggedOut }) {
                   </div>
                   <div className="upgrade-desc">{desc}</div>
                   <InvestButton maxed={maxed} afford={afford && !gated} cost={cost} onClick={() => buyUpgrade(key)} />
+                  {(key === 'ouvrier' || key === 'semeur') && u.level > 0 && (u.count || 1) < maxSlots && (() => {
+                    const hireCost = workerSlotCost((u.count || 1) + 1, state);
+                    const canHire = state.money >= hireCost;
+                    return (
+                      <button
+                        className={`full-btn invest-btn ${canHire ? 'on' : 'off'}`}
+                        style={{ marginTop: 6, backgroundImage: `url(/sprites/${canHire ? 'btn-on' : 'btn-off'}.webp)` }}
+                        onClick={() => hireWorker(key)}
+                      >
+                        Embaucher un {key === 'ouvrier' ? 'ouvrier' : 'semeur'} supplémentaire — {hireCost}p
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })}
