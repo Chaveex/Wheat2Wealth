@@ -843,9 +843,19 @@ function Game({ username, onLoggedOut }) {
       />
       <div className="topbar">
         <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
-        <div className="topbar-treasury">
-          <span>Trésorerie : <span className="value">{Math.round(state.money).toLocaleString()}</span> p</span>
-          <span className="rate-badge">{perSecond.toFixed(2)} p/s</span>
+        <div className="topbar-metrics">
+          <div className="metric">
+            <span className="metric-label">Trésorerie</span>
+            <span className="metric-value treasury">{Math.round(state.money).toLocaleString()} p</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">Revenu</span>
+            <span className="metric-value revenue">{perSecond >= 0 ? '+' : ''}{perSecond.toFixed(1)} p/s</span>
+          </div>
+          <div className="metric">
+            <span className="metric-label">Gaspillage</span>
+            <span className="metric-value waste">{wastePct.toFixed(1)}%</span>
+          </div>
         </div>
         <div className="top-right">
           <span>
@@ -943,7 +953,7 @@ function Game({ username, onLoggedOut }) {
           </div>
         ))}
 
-        <div className="ledger panel-col-left">
+        <div className="ledger panel-col-2">
           <Section title="Parcelles">
             <div className="row"><span>Prochaine parcelle</span><span>{nextPlotCost} p</span></div>
             <div className="row"><span>Semer une parcelle libre</span><span>{SEED_COST} p</span></div>
@@ -981,31 +991,6 @@ function Game({ username, onLoggedOut }) {
             )}
           </Section>
           <hr />
-          <Section title="Efficacité de la ferme">
-            <div className="stat-grid">
-              <div className="stat-card">
-                <div className="stat-label">Parcelles en exploitation</div>
-                <div className="stat-value">{owned}</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-label">Cadence idéale (plein régime)</div>
-                <div className="stat-value">1 toutes les {idealCadence.toFixed(2)}s</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-label">Cadence du semeur</div>
-                <div className={`stat-value ${sowerInterval === null ? '' : sowerInterval <= idealCadence ? 'ok' : 'slow'}`}>
-                  {sowerInterval === null ? 'inactif' : `1 toutes les ${sowerInterval.toFixed(1)}s`}
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-label">Cadence de l&rsquo;ouvrier</div>
-                <div className={`stat-value ${harvestInterval === null ? '' : harvestInterval <= idealCadence ? 'ok' : 'slow'}`}>
-                  {harvestInterval === null ? 'inactif' : `1 toutes les ${harvestInterval.toFixed(1)}s`}
-                </div>
-              </div>
-            </div>
-          </Section>
-          <hr />
           <Section title="Exploitation">
             <div className="row"><span>Génération</span><span>{state.generation}</span></div>
             <div className="row"><span>Taille du terrain</span><span>{state.farmCols} × {state.farmRows}</span></div>
@@ -1031,6 +1016,31 @@ function Game({ username, onLoggedOut }) {
             </button>
           </Section>
           <hr />
+          <Section title="Efficacité de la ferme">
+            <div className="stat-grid">
+              <div className="stat-card">
+                <div className="stat-label">Parcelles en exploitation</div>
+                <div className="stat-value">{owned}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence idéale (plein régime)</div>
+                <div className="stat-value">1 toutes les {idealCadence.toFixed(2)}s</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence du semeur</div>
+                <div className={`stat-value ${sowerInterval === null ? '' : sowerInterval <= idealCadence ? 'ok' : 'slow'}`}>
+                  {sowerInterval === null ? 'inactif' : `1 toutes les ${sowerInterval.toFixed(1)}s`}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cadence de l&rsquo;ouvrier</div>
+                <div className={`stat-value ${harvestInterval === null ? '' : harvestInterval <= idealCadence ? 'ok' : 'slow'}`}>
+                  {harvestInterval === null ? 'inactif' : `1 toutes les ${harvestInterval.toFixed(1)}s`}
+                </div>
+              </div>
+            </div>
+          </Section>
+          <hr />
           <Section title="Registre" defaultCollapsed>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 110, overflowY: 'auto' }}>
               {log.map((m, i) => (
@@ -1040,7 +1050,7 @@ function Game({ username, onLoggedOut }) {
           </Section>
         </div>
 
-        <div className="ledger panel-col-right">
+        <div className="ledger panel-col-3">
           <Section title="Investissements">
             {Object.keys(UPGRADE_DEFS).map((key) => {
               const def = UPGRADE_DEFS[key];
@@ -1088,7 +1098,12 @@ function Game({ username, onLoggedOut }) {
                       )}
                       {def.name}
                     </span>
-                    <span className="upgrade-level">Niv. {u.level}{maxed ? ' (max)' : `/${def.max}`}</span>
+                    <span className="upgrade-level">
+                      Niv. {u.level}{maxed ? ' (max)' : `/${def.max}`}
+                      {(key === 'ouvrier' || key === 'semeur') && (u.count || 1) > 1 && (
+                        <span className="worker-count-badge"> · {u.count}/{maxSlots}</span>
+                      )}
+                    </span>
                   </div>
                   <div className="upgrade-desc">{desc}</div>
                   <InvestButton maxed={maxed} afford={afford && !gated} cost={cost} onClick={() => buyUpgrade(key)} />
@@ -1109,7 +1124,9 @@ function Game({ username, onLoggedOut }) {
               );
             })}
           </Section>
-          <hr />
+        </div>
+
+        <div className="ledger panel-col-4">
           <Section title="Statistiques" defaultCollapsed>
             <p className="field-caption" style={{ color: 'var(--ink-soft)' }}>
               Les chiffres bruts pour optimiser ta stratégie — tout ce qui compte pour battre les
@@ -1175,18 +1192,20 @@ function Game({ username, onLoggedOut }) {
             </div>
           </Section>
           <hr />
-          <Section title="Classement" defaultCollapsed>
-            <ul className="leaderboard">
-              {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
-              {leaderboard.map((entry, idx) => (
-                <li key={entry.username} className={entry.username === username ? 'me' : ''}>
-                  <span><span className="rank">#{idx + 1}</span>{entry.username}</span>
-                  <span>{Math.round(entry.bestScore).toLocaleString()} p</span>
-                </li>
-              ))}
-            </ul>
-            <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
-          </Section>
+          <div style={{ marginTop: 'auto' }}>
+            <Section title="Classement" defaultCollapsed>
+              <ul className="leaderboard">
+                {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
+                {leaderboard.map((entry, idx) => (
+                  <li key={entry.username} className={entry.username === username ? 'me' : ''}>
+                    <span><span className="rank">#{idx + 1}</span>{entry.username}</span>
+                    <span>{Math.round(entry.bestScore).toLocaleString()} p</span>
+                  </li>
+                ))}
+              </ul>
+              <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
+            </Section>
+          </div>
         </div>
       </div>
     </>
