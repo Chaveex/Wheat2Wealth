@@ -42,6 +42,8 @@ import {
   currentFillBonus,
   FILL_BONUS_MIN_GEN,
   SILO_BUFFER_MULT,
+  fieldCellSize,
+  MAX_FARM_SIZE,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -288,6 +290,8 @@ function Game({ username, onLoggedOut }) {
   const gainIdRef = useRef(0);
   const courtierAudioRef = useRef(null);
   const manualAudioRef = useRef(null);
+  const overflowAudioRef = useRef(null);
+  const wasOverflowingRef = useRef(false);
 
   // Queue of visual effects requested from *inside* a setState updater
   // (harvest/plant, and the automation tick). Writing to a ref is a plain,
@@ -346,8 +350,13 @@ function Game({ username, onLoggedOut }) {
       else if (effect.kind === 'gain') spawnFloatingGain(effect.idx, effect.text, effect.cls);
       else if (effect.kind === 'moneyGain') spawnMoneyGain(effect.amount);
       else if (effect.kind === 'sound') {
-        const ref = effect.name === 'manualSold' ? manualAudioRef : courtierAudioRef;
-        const el = ref.current;
+        const audioRefByName = {
+          manualSold: manualAudioRef,
+          courtierSold: courtierAudioRef,
+          overflowWarning: overflowAudioRef,
+        };
+        const ref = audioRefByName[effect.name];
+        const el = ref?.current;
         if (el) {
           el.currentTime = 0;
           el.play().catch((err) => {
@@ -506,6 +515,16 @@ function Game({ username, onLoggedOut }) {
             dirtyRef.current = true;
             queueSound('courtierSold');
             queueMoneyGain(total);
+          }
+        }
+
+        if (prev.generation >= FILL_BONUS_MIN_GEN) {
+          const nominalCap = siloCap(prev);
+          if (wheat > nominalCap && !wasOverflowingRef.current) {
+            wasOverflowingRef.current = true;
+            queueSound('overflowWarning');
+          } else if (wheat <= nominalCap) {
+            wasOverflowingRef.current = false;
           }
         }
 
@@ -687,6 +706,7 @@ function Game({ username, onLoggedOut }) {
       const total = Math.round(prev.wheat * SELL_PRICE * (1 + bonus));
       pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p${bonus > 0 ? ` (bonus de remplissage +${Math.round(bonus * 100)}%)` : ''}.`);
       markDirty();
+      wasOverflowingRef.current = false;
       queueSound('manualSold');
       queueMoneyGain(total);
       return {
@@ -918,6 +938,7 @@ function Game({ username, onLoggedOut }) {
   const totalProduced = state.stats.totalWheatHarvested + state.stats.totalWheatLost;
   const wastePct = totalProduced > 0 ? (state.stats.totalWheatLost / totalProduced) * 100 : 0;
   const sellFillBonus = currentFillBonus(state);
+  const cellPx = fieldCellSize(state);
   const costPerUnit = state.stats.totalWheatHarvested > 0 ? state.stats.totalSpent / state.stats.totalWheatHarvested : 0;
   const netProfit = state.stats.totalEarned - state.stats.totalSpent;
   const idealCadence = owned > 0 ? growTimeSeconds(state) / owned : growTimeSeconds(state);
@@ -950,6 +971,12 @@ function Game({ username, onLoggedOut }) {
         src="/soundEffect/manualSold.mp3"
         preload="auto"
         onError={() => console.error("Le fichier /soundEffect/manualSold.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
+      />
+      <audio
+        ref={overflowAudioRef}
+        src="/soundEffect/Heavy_soviet_warning_reverb.mp3"
+        preload="auto"
+        onError={() => console.error("Le fichier /soundEffect/Heavy_soviet_warning_reverb.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
       />
       <div className="topbar">
         <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
@@ -1043,7 +1070,7 @@ function Game({ username, onLoggedOut }) {
             <div
               className="field"
               ref={fieldRef}
-              style={{ gridTemplateColumns: `repeat(${state.farmCols}, 1fr)` }}
+              style={{ gridTemplateColumns: `repeat(${state.farmCols}, ${cellPx}px)` }}
               onMouseLeave={() => setPreviewBlock([])}
             >
               {state.plots.map((p, i) => (

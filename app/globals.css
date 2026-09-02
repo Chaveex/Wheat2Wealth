@@ -103,9 +103,9 @@ input{
 
 .layout{
   display:flex; gap:20px; padding:24px 28px 40px; align-items:stretch; flex-wrap:wrap;
-  max-width:1680px; margin:0 auto;
+  max-width:1740px; margin:0 auto;
 }
-.field-wrap{flex:1 1 380px; max-width:440px;}
+.field-wrap{flex:1 1 380px; max-width:500px;}
 .field-caption{font-size:0.8rem; color:#a8a498; margin-bottom:10px;}
 .field{
   display:grid; grid-template-columns:repeat(6,1fr); gap:6px;
@@ -118,6 +118,7 @@ input{
   cursor:pointer; user-select:none; overflow:hidden;
   font-size:1.3rem;
   transition:transform .08s ease;
+  image-rendering:pixelated;
 }
 .plot:active{transform:scale(.94);}
 .plot.locked{background:var(--locked); color:#5a584f; cursor:not-allowed;}
