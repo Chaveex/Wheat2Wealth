@@ -183,6 +183,18 @@ input{
   height:100%; background:var(--gold);
   transition:width 0.2s ease;
 }
+.silo-bar-overflow{
+  position:absolute; top:0; height:100%; background:var(--alert);
+  transition:width 0.2s ease, left 0.2s ease;
+  animation:overflowPulse 1s ease-in-out infinite;
+}
+@keyframes overflowPulse{
+  0%,100%{opacity:1;}
+  50%{opacity:0.55;}
+}
+.silo-bar-marker{
+  position:absolute; top:0; bottom:0; width:2px; background:rgba(29,28,26,0.55);
+}
 .silo-bar-text{
   position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
   font-size:0.8rem; font-weight:700; color:#f0ead9;
@@ -190,6 +202,7 @@ input{
 }
 .silo-bar-text.warn{color:var(--warn);}
 .silo-bar-text.alert{color:var(--alert);}
+.fill-bonus-hot{color:var(--gold); font-weight:700;}
 
 .ledger{
   flex:1 1 300px; max-width:380px; background:var(--paper); color:var(--ink);

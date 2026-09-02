@@ -37,6 +37,11 @@ import {
   workerSlotCost,
   sellShortcutCost,
   SELL_SHORTCUT_MIN_GEN,
+  fillBonusPct,
+  siloEffectiveCap,
+  currentFillBonus,
+  FILL_BONUS_MIN_GEN,
+  SILO_BUFFER_MULT,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -430,7 +435,7 @@ function Game({ username, onLoggedOut }) {
               const idx = findNextIndex(plots, harvestCursorsRef.current[w], (p) => p.state === 'ready');
               if (idx !== -1) {
                 const amount = yieldAmount(prev);
-                const cap = siloCap(prev);
+                const cap = siloEffectiveCap(prev);
                 const space = cap - wheat;
                 const added = Math.min(amount, Math.max(0, space));
                 if (plots === prev.plots) plots = plots.slice();
@@ -476,10 +481,11 @@ function Game({ username, onLoggedOut }) {
         if (courtierActiveRef.current && prev.upgrades.courtier.level > 0) {
           const cap = siloCap(prev);
           if (cap > 0 && wheat >= cap * COURTIER_THRESHOLD) {
-            const gross = Math.round(wheat * SELL_PRICE);
+            const bonus = prev.generation >= FILL_BONUS_MIN_GEN ? fillBonusPct(wheat / cap) : 0;
+            const gross = Math.round(wheat * SELL_PRICE * (1 + bonus));
             const tax = courtierTax(prev);
             const total = Math.round(gross * (1 - tax));
-            pushLog(`Vente automatique (courtier) de ${wheat} unités de blé pour ${total}p (taxe ${Math.round(tax * 100)}%).`);
+            pushLog(`Vente automatique (courtier) de ${wheat} unités de blé pour ${total}p (bonus +${Math.round(bonus * 100)}%, taxe ${Math.round(tax * 100)}%).`);
             statEarned += total;
             statSold += wheat;
             statSales += 1;
@@ -637,7 +643,7 @@ function Game({ username, onLoggedOut }) {
         touched = true;
         let amount = yieldAmount(prev);
         if (useCombine) amount = Math.max(0, Math.round(amount * (1 - moissonneusePenalty(prev))));
-        const cap = siloCap(prev);
+        const cap = siloEffectiveCap(prev);
         const space = cap - wheat;
         const added = Math.min(amount, Math.max(0, space));
         if (added < amount) {
@@ -667,8 +673,9 @@ function Game({ username, onLoggedOut }) {
   function sell() {
     setState((prev) => {
       if (!prev || prev.wheat <= 0) return prev;
-      const total = Math.round(prev.wheat * SELL_PRICE);
-      pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p.`);
+      const bonus = currentFillBonus(prev);
+      const total = Math.round(prev.wheat * SELL_PRICE * (1 + bonus));
+      pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p${bonus > 0 ? ` (bonus de remplissage +${Math.round(bonus * 100)}%)` : ''}.`);
       markDirty();
       queueSound('manualSold');
       queueMoneyGain(total);
@@ -884,6 +891,7 @@ function Game({ username, onLoggedOut }) {
   const elapsedSec = Math.max(elapsedMs / 1000, 1);
   const totalProduced = state.stats.totalWheatHarvested + state.stats.totalWheatLost;
   const wastePct = totalProduced > 0 ? (state.stats.totalWheatLost / totalProduced) * 100 : 0;
+  const sellFillBonus = currentFillBonus(state);
   const costPerUnit = state.stats.totalWheatHarvested > 0 ? state.stats.totalSpent / state.stats.totalWheatHarvested : 0;
   const netProfit = state.stats.totalEarned - state.stats.totalSpent;
   const idealCadence = owned > 0 ? growTimeSeconds(state) / owned : growTimeSeconds(state);
@@ -1051,8 +1059,14 @@ function Game({ username, onLoggedOut }) {
           </Section>
           <hr />
           <Section title="Silo">
-            <SiloBar wheat={state.wheat} cap={siloCap(state)} />
+            <SiloBar wheat={state.wheat} cap={siloCap(state)} bufferCap={siloEffectiveCap(state)} showBuffer={state.generation >= FILL_BONUS_MIN_GEN} />
             <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
+            {state.generation >= FILL_BONUS_MIN_GEN && (
+              <div className="row">
+                <span>Bonus de remplissage actuel</span>
+                <span className={sellFillBonus > 0.05 ? 'fill-bonus-hot' : undefined}>+{Math.round(sellFillBonus * 100)}%</span>
+              </div>
+            )}
             <button
               ref={sellBtnRef}
               className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''} ${kbdPressed ? 'kbd-press' : ''}`}
@@ -1060,7 +1074,7 @@ function Game({ username, onLoggedOut }) {
               onClick={sell}
               style={{ backgroundImage: `url(${state.wheat > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})` }}
             >
-              VENTE À LA CRIÉE {Math.round(state.wheat * SELL_PRICE)}p
+              VENTE À LA CRIÉE {Math.round(state.wheat * SELL_PRICE * (1 + sellFillBonus))}p
             </button>
             {state.upgrades.courtier.level > 0 && (
               <div className="row" style={{ marginTop: 10, alignItems: 'center' }}>
@@ -1412,15 +1426,29 @@ function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnt
   );
 }
 
-function SiloBar({ wheat, cap }) {
-  const pct = cap > 0 ? Math.min(100, (wheat / cap) * 100) : 0;
-  const textClass = pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : '';
+function SiloBar({ wheat, cap, bufferCap, showBuffer }) {
+  const trackMax = showBuffer && bufferCap ? bufferCap : cap;
+  const pctOfNominal = cap > 0 ? (wheat / cap) * 100 : 0;
+  const textClass = pctOfNominal >= 90 ? 'alert' : pctOfNominal >= 70 ? 'warn' : '';
+  const greenWidth = trackMax > 0 ? Math.min(100, (Math.min(wheat, cap) / trackMax) * 100) : 0;
+  const overflowWidth = showBuffer && wheat > cap && trackMax > 0
+    ? Math.min(100 - greenWidth, ((Math.min(wheat, trackMax) - cap) / trackMax) * 100)
+    : 0;
+  const markerPct = showBuffer && trackMax > 0 ? (cap / trackMax) * 100 : 100;
   return (
     <div className="silo-bar-wrap">
       <div className="silo-bar-label">Blé stocké</div>
       <div className="silo-bar-track">
-        <div className="silo-bar-fill" style={{ width: `${pct}%` }} />
-        <span className={`silo-bar-text ${textClass}`}>{wheat} / {cap}</span>
+        <div className="silo-bar-fill" style={{ width: `${greenWidth}%` }} />
+        {overflowWidth > 0 && (
+          <div className="silo-bar-overflow" style={{ left: `${greenWidth}%`, width: `${overflowWidth}%` }} />
+        )}
+        {showBuffer && markerPct < 100 && (
+          <div className="silo-bar-marker" style={{ left: `${markerPct}%` }} title="100% de la capacité nominale" />
+        )}
+        <span className={`silo-bar-text ${textClass}`}>
+          {wheat} / {cap}{wheat > cap ? ` (+${wheat - cap} tampon)` : ''}
+        </span>
       </div>
     </div>
   );
