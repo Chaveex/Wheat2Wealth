@@ -959,7 +959,7 @@ function Game({ username, onLoggedOut }) {
             <span className="metric-value treasury">
               {Math.round(state.money).toLocaleString()}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/sprites/currency.webp" alt="p" className="currency-icon-inline" />
+              <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />
             </span>
           </div>
           <div className="metric">
@@ -967,7 +967,7 @@ function Game({ username, onLoggedOut }) {
             <span className="metric-value revenue">
               {perSecond >= 0 ? '+' : ''}{perSecond.toFixed(1)}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/sprites/currency.webp" alt="p" className="currency-icon-inline" />/s
+              <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />/s
             </span>
           </div>
           <div className="metric">
@@ -1073,7 +1073,7 @@ function Game({ username, onLoggedOut }) {
               <>
                 +{g.amount.toLocaleString()}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/sprites/currency.webp" alt="p" className="currency-icon-inline" />
+                <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />
               </>
             ) : g.text}
           </div>
