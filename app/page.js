@@ -883,11 +883,19 @@ function Game({ username, onLoggedOut }) {
         <div className="topbar-metrics">
           <div className="metric">
             <span className="metric-label">Trésorerie</span>
-            <span className="metric-value treasury">{Math.round(state.money).toLocaleString()} p</span>
+            <span className="metric-value treasury">
+              {Math.round(state.money).toLocaleString()}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/sprites/currency.webp" alt="p" className="currency-icon-inline" />
+            </span>
           </div>
           <div className="metric">
             <span className="metric-label">Revenu</span>
-            <span className="metric-value revenue">{perSecond >= 0 ? '+' : ''}{perSecond.toFixed(1)} p/s</span>
+            <span className="metric-value revenue">
+              {perSecond >= 0 ? '+' : ''}{perSecond.toFixed(1)}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/sprites/currency.webp" alt="p" className="currency-icon-inline" />/s
+            </span>
           </div>
           <div className="metric">
             <span className="metric-label">Gaspillage</span>

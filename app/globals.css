@@ -91,6 +91,7 @@ input{
 .metric-value{
   font-family:'Pixelify Sans','Courier New',monospace;
   font-size:1.3rem; font-weight:700; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:2px;
 }
 .metric-value.treasury{color:var(--gold-bright);}
 .metric-value.revenue{color:var(--gold);}
