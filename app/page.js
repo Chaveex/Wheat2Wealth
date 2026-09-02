@@ -19,7 +19,7 @@ import {
   findNextIndex,
   normalizeState,
   meets4LinesRequirement,
-  get2x2Block,
+  getRowBlock,
   moissonneusePenalty,
   semoirMecaFailChance,
   courtierTax,
@@ -240,7 +240,7 @@ function Game({ username, onLoggedOut }) {
   }, []);
 
   // --- Visual-only feedback: floating "+X" gains, worker/sower ring
-  // flashes, and the 2x2 hover preview for the machines. None of this is
+  // flashes, and the full-row hover preview for the machines. None of this is
   // persisted — it's purely reactive game feel layered on top of `state`.
   const fieldRef = useRef(null);
   const [previewBlock, setPreviewBlock] = useState([]);
@@ -249,6 +249,7 @@ function Game({ username, onLoggedOut }) {
   const [floatingGains, setFloatingGains] = useState([]); // [{id, left, top, text, cls}]
   const gainIdRef = useRef(0);
   const courtierAudioRef = useRef(null);
+  const manualAudioRef = useRef(null);
 
   // Queue of visual effects requested from *inside* a setState updater
   // (harvest/plant, and the automation tick). Writing to a ref is a plain,
@@ -294,8 +295,15 @@ function Game({ username, onLoggedOut }) {
       if (effect.kind === 'flash') addFlash(effect.idx, effect.type);
       else if (effect.kind === 'gain') spawnFloatingGain(effect.idx, effect.text, effect.cls);
       else if (effect.kind === 'sound') {
-        const el = courtierAudioRef.current;
-        if (el) { el.currentTime = 0; el.play().catch(() => {}); }
+        const ref = effect.name === 'manualSold' ? manualAudioRef : courtierAudioRef;
+        const el = ref.current;
+        if (el) {
+          el.currentTime = 0;
+          el.play().catch((err) => {
+            console.error(`Impossible de jouer le son "${effect.name}" :`, err);
+            pushLog(`Son non joué (${err?.name || 'erreur inconnue'}) — vérifie public/soundEffect/.`);
+          });
+        }
       }
     });
   });
@@ -306,7 +314,28 @@ function Game({ username, onLoggedOut }) {
     const wantsHarvestPreview = plot.state === 'ready' && harvestMode === 'combine' && state.upgrades.moissonneuse.level > 0;
     const wantsSowPreview = plot.state === 'empty' && sowMode === 'combine' && state.upgrades.semoirMeca.level > 0;
     if (!wantsHarvestPreview && !wantsSowPreview) return setPreviewBlock([]);
-    setPreviewBlock(get2x2Block(idx, state.farmCols, state.farmRows));
+    setPreviewBlock(getRowBlock(idx, state.farmCols));
+  }
+
+  // Drag-to-buy: mousedown on a locked plot arms dragging and buys it right
+  // away; every other locked plot the cursor enters while still held down
+  // gets bought too. A window-level mouseup (not just over the grid) always
+  // disarms it, so releasing outside the field doesn't leave it stuck on.
+  const isBuyDraggingRef = useRef(false);
+  useEffect(() => {
+    function stopDrag() { isBuyDraggingRef.current = false; }
+    window.addEventListener('mouseup', stopDrag);
+    return () => window.removeEventListener('mouseup', stopDrag);
+  }, []);
+
+  function startBuyDrag(i) {
+    isBuyDraggingRef.current = true;
+    buyPlot(i);
+  }
+
+  function dragOverPlot(i, plotState) {
+    updatePreview(i);
+    if (isBuyDraggingRef.current && plotState === 'locked') buyPlot(i);
   }
 
   // Growth tick + automation (ouvrier agricole / semeur automatique).
@@ -505,7 +534,7 @@ function Game({ username, onLoggedOut }) {
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
-      const indices = useCombine ? get2x2Block(i, prev.farmCols, prev.farmRows) : [i];
+      const indices = useCombine ? getRowBlock(i, prev.farmCols) : [i];
       const plots = prev.plots.slice();
       let money = prev.money;
       let spent = 0;
@@ -537,7 +566,7 @@ function Game({ username, onLoggedOut }) {
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
-      const indices = useCombine ? get2x2Block(i, prev.farmCols, prev.farmRows) : [i];
+      const indices = useCombine ? getRowBlock(i, prev.farmCols) : [i];
       const plots = prev.plots.slice();
       let wheat = prev.wheat;
       let harvested = 0;
@@ -581,6 +610,7 @@ function Game({ username, onLoggedOut }) {
       const total = Math.round(prev.wheat * SELL_PRICE);
       pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p.`);
       markDirty();
+      queueSound('manualSold');
       return {
         ...prev,
         money: prev.money + total,
@@ -729,7 +759,18 @@ function Game({ username, onLoggedOut }) {
 
   return (
     <>
-      <audio ref={courtierAudioRef} src="/soundEffect/courtierSold.mp3" preload="auto" />
+      <audio
+        ref={courtierAudioRef}
+        src="/soundEffect/courtierSold.mp3"
+        preload="auto"
+        onError={() => console.error("Le fichier /soundEffect/courtierSold.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
+      />
+      <audio
+        ref={manualAudioRef}
+        src="/soundEffect/manualSold.mp3"
+        preload="auto"
+        onError={() => console.error("Le fichier /soundEffect/manualSold.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
+      />
       <div className="topbar">
         <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
         <div className="topbar-treasury">
@@ -774,7 +815,7 @@ function Game({ username, onLoggedOut }) {
                 label="Mode de récolte :"
                 value={harvestMode}
                 onChange={setHarvestMode}
-                combineLabel={`Moissonneuse (2×2, -${Math.round(moissonneusePenalty(state) * 100)}%)`}
+                combineLabel={`Moissonneuse (ligne entière, -${Math.round(moissonneusePenalty(state) * 100)}%)`}
                 combineIcon={harvesterSprite(state.upgrades.moissonneuse.level)}
               />
             )}
@@ -783,7 +824,7 @@ function Game({ username, onLoggedOut }) {
                 label="Mode de semis :"
                 value={sowMode}
                 onChange={setSowMode}
-                combineLabel={`Semoir (2×2, ${Math.round(semoirMecaFailChance(state) * 100)}% d'échec)`}
+                combineLabel={`Semoir (ligne entière, ${Math.round(semoirMecaFailChance(state) * 100)}% d'échec)`}
                 combineIcon={seederSprite(state.upgrades.semoirMeca.level)}
               />
             )}
@@ -798,10 +839,12 @@ function Game({ username, onLoggedOut }) {
                   growTime={growTimeSeconds(state)}
                   preview={previewBlock.includes(i)}
                   flash={flashes.find((f) => f.idx === i)?.type}
-                  onMouseEnter={() => updatePreview(i)}
+                  onMouseEnter={() => dragOverPlot(i, p.state)}
+                  onMouseDown={() => {
+                    if (p.state === 'locked') startBuyDrag(i);
+                  }}
                   onClick={() => {
-                    if (p.state === 'locked') buyPlot(i);
-                    else if (p.state === 'empty') plant(i);
+                    if (p.state === 'empty') plant(i);
                     else if (p.state === 'ready') harvest(i);
                   }}
                 />
@@ -938,11 +981,11 @@ function Game({ username, onLoggedOut }) {
               } else if (key === 'moissonneuse') {
                 desc = u.level <= 0
                   ? "Débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles achetées pour pouvoir l'acheter."
-                  : `Permet de récolter en carré de 2×2 (à toi de choisir le mode). Pénalité de rendement actuelle en mode moissonneuse : -${Math.round(moissonneusePenalty(state) * 100)}%.`;
+                  : `Permet de récolter une ligne entière d'un coup (à toi de choisir le mode). Pénalité de rendement actuelle en mode moissonneuse : -${Math.round(moissonneusePenalty(state) * 100)}%.`;
               } else if (key === 'semoirMeca') {
                 desc = u.level <= 0
                   ? "Débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles achetées pour pouvoir l'acheter."
-                  : `Permet de semer en carré de 2×2 (à toi de choisir le mode). Risque actuel qu'une parcelle ne prenne pas : ${Math.round(semoirMecaFailChance(state) * 100)}%.`;
+                  : `Permet de semer une ligne entière d'un coup (à toi de choisir le mode). Risque actuel qu'une parcelle ne prenne pas : ${Math.round(semoirMecaFailChance(state) * 100)}%.`;
               } else if (key === 'courtier') {
                 desc = u.level <= 0
                   ? 'Vend automatiquement le blé quand le silo est presque plein, contre une taxe.'
@@ -1087,13 +1130,17 @@ function LockIcon() {
   );
 }
 
-function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnter }) {
+function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnter, onMouseDown }) {
   const flashClass = flash === 'worker' ? 'worker-flash' : flash === 'sower' ? 'sower-flash' : '';
   const previewClass = preview ? 'harvest-preview' : '';
   if (plot.state === 'locked') {
     const affordable = money >= cost;
     return (
-      <div className={`plot locked ${affordable ? 'affordable' : ''}`} onClick={onClick} onMouseEnter={onMouseEnter}>
+      <div
+        className={`plot locked ${affordable ? 'affordable' : ''}`}
+        onMouseDown={onMouseDown}
+        onMouseEnter={onMouseEnter}
+      >
         <LockIcon />
         <span className="plot-price">{cost}p</span>
       </div>

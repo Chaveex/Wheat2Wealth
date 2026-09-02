@@ -106,6 +106,7 @@ input{
 .field{
   display:grid; grid-template-columns:repeat(6,1fr); gap:6px;
   background:var(--soil); padding:10px; border-radius:4px; border:1px solid var(--soil-line);
+  user-select:none;
 }
 .plot{
   position:relative; aspect-ratio:1/1; border-radius:3px;
