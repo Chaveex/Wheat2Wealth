@@ -90,7 +90,7 @@ input{
   margin-bottom:2px;
 }
 .metric-value{
-  font-family:'Pixelify Sans','Courier New',monospace;
+  font-family:'Courier New',monospace;
   font-size:1.3rem; font-weight:700; white-space:nowrap;
   display:inline-flex; align-items:center; gap:2px;
 }
@@ -224,13 +224,11 @@ input{
 .upgrade-name{font-weight:700; font-size:0.86rem;}
 .upgrade-level{font-size:0.72rem; color:var(--ink-soft);}
 .worker-count-badge{color:var(--gold); font-weight:700;}
-.worker-toggle-row{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
-.worker-toggle{
-  display:flex; align-items:center; gap:3px;
-  background:none; border:none; padding:2px; cursor:pointer;
+.worker-toggle-inline{
+  display:flex; align-items:center; background:none; border:none; padding:0;
+  cursor:pointer; flex-shrink:0;
 }
-.worker-toggle img{height:18px; width:auto; image-rendering:pixelated; display:block;}
-.worker-toggle span{font-size:0.66rem; color:var(--ink-soft); font-weight:600;}
+.worker-toggle-inline img{height:20px; width:auto; image-rendering:pixelated; display:block;}
 .upgrade-desc{font-size:0.74rem; color:var(--ink-soft); margin-bottom:6px;}
 
 .leaderboard{list-style:none; margin:0; padding:0;}

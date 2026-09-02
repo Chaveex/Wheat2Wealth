@@ -1009,6 +1009,7 @@ function Game({ username, onLoggedOut }) {
                 progress={p}
                 colorVar="--gold"
                 paused={state.upgrades.ouvrier.enabled?.[w] === false}
+                onToggle={() => toggleWorkerEnabled('ouvrier', w)}
               />
             ))}
             {state.upgrades.semeur.level > 0 && sowProgresses.map((p, w) => (
@@ -1018,6 +1019,7 @@ function Game({ username, onLoggedOut }) {
                 progress={p}
                 colorVar="--gold-bright"
                 paused={state.upgrades.semeur.enabled?.[w] === false}
+                onToggle={() => toggleWorkerEnabled('semeur', w)}
               />
             ))}
             {state.upgrades.moissonneuse.level > 0 && (
@@ -1283,28 +1285,6 @@ function Game({ username, onLoggedOut }) {
                       </button>
                     );
                   })()}
-                  {(key === 'ouvrier' || key === 'semeur') && u.level > 0 && (
-                    <div className="worker-toggle-row">
-                      {Array.from({ length: u.count || 1 }, (_, w) => {
-                        const enabled = u.enabled?.[w] !== false;
-                        return (
-                          <button
-                            key={w}
-                            className="worker-toggle"
-                            onClick={() => toggleWorkerEnabled(key, w)}
-                            title={`${key === 'ouvrier' ? 'Ouvrier' : 'Semeur'} #${w + 1} : ${enabled ? 'actif' : 'en pause'}`}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={enabled ? '/sprites/toggle-on.webp' : '/sprites/toggle-off.webp'}
-                              alt={enabled ? 'Actif' : 'En pause'}
-                            />
-                            <span>#{w + 1}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -1377,20 +1357,18 @@ function Game({ username, onLoggedOut }) {
             </div>
           </Section>
           <hr />
-          <div style={{ marginTop: 'auto' }}>
-            <Section title="Classement" defaultCollapsed>
-              <ul className="leaderboard">
-                {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
-                {leaderboard.map((entry, idx) => (
-                  <li key={entry.username} className={entry.username === username ? 'me' : ''}>
-                    <span><span className="rank">#{idx + 1}</span>{entry.username}</span>
-                    <span>{Math.round(entry.bestScore).toLocaleString()} p</span>
-                  </li>
-                ))}
-              </ul>
-              <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
-            </Section>
-          </div>
+          <Section title="Classement" defaultCollapsed>
+            <ul className="leaderboard">
+              {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
+              {leaderboard.map((entry, idx) => (
+                <li key={entry.username} className={entry.username === username ? 'me' : ''}>
+                  <span><span className="rank">#{idx + 1}</span>{entry.username}</span>
+                  <span>{Math.round(entry.bestScore).toLocaleString()} p</span>
+                </li>
+              ))}
+            </ul>
+            <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
+          </Section>
         </div>
       </div>
     </>
@@ -1504,9 +1482,19 @@ function SiloBar({ wheat, cap, bufferCap, showBuffer }) {
   );
 }
 
-function AutoTimerBar({ label, progress, colorVar, paused }) {
+function AutoTimerBar({ label, progress, colorVar, paused, onToggle }) {
   return (
     <div className={`auto-timer-row ${paused ? 'paused' : ''}`}>
+      {onToggle && (
+        <button
+          className="worker-toggle-inline"
+          onClick={onToggle}
+          title={paused ? 'Réactiver' : 'Mettre en pause'}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={paused ? '/sprites/toggle-off.webp' : '/sprites/toggle-on.webp'} alt={paused ? 'En pause' : 'Actif'} />
+        </button>
+      )}
       <span className="field-row-label">{label}</span>
       {paused ? (
         <span className="auto-timer-paused">En pause</span>
@@ -1581,7 +1569,7 @@ function FarmChoiceScreen({ state, onChoose, onChooseBase }) {
             border: '2px solid var(--gold)', borderRadius: 5, padding: '16px 18px', textAlign: 'center',
           }}
         >
-          <h3 style={{ fontFamily: "'Pixelify Sans','Courier New',monospace", margin: '0 0 8px', fontSize: '1rem' }}>
+          <h3 style={{ fontFamily: "'Courier New',monospace", margin: '0 0 8px', fontSize: '1rem' }}>
             Exploitation de départ
           </h3>
           <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '0 0 10px' }}>
@@ -1608,7 +1596,7 @@ function FarmChoiceScreen({ state, onChoose, onChooseBase }) {
                 border: '1px solid var(--paper-line)', borderRadius: 5, padding: '16px 18px', textAlign: 'center',
               }}
             >
-              <h3 style={{ fontFamily: "'Pixelify Sans','Courier New',monospace", margin: '0 0 8px', fontSize: '1rem' }}>
+              <h3 style={{ fontFamily: "'Courier New',monospace", margin: '0 0 8px', fontSize: '1rem' }}>
                 {tier === 0 ? 'Même taille' : `Agrandie (+${tier} ligne${tier > 1 ? 's' : ''}, +${tier} colonne${tier > 1 ? 's' : ''})`}
               </h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--ink-soft)', margin: '0 0 10px' }}>{cols} × {rows} parcelles</p>
