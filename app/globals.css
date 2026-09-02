@@ -98,6 +98,44 @@ input{
 .metric-value.revenue{color:var(--gold);}
 .metric-value.waste{color:var(--alert);}
 .top-right{justify-self:end; display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-size:0.8rem;}
+
+.radio-widget{position:relative; display:flex; align-items:center;}
+.radio-mini{
+  position:relative; background:none; border:none; padding:0; cursor:pointer;
+  display:block; line-height:0;
+}
+.radio-mini img{height:40px; width:auto; image-rendering:pixelated; display:block;}
+.radio-led{
+  position:absolute; top:4px; right:5px; width:6px; height:6px; border-radius:50%;
+  background:#5a2a24; box-shadow:inset 0 0 1px rgba(0,0,0,0.6);
+}
+.radio-led.on{background:#8AA066; box-shadow:0 0 4px rgba(138,160,102,0.9);}
+
+.radio-popover{
+  position:absolute; top:100%; right:0; margin-top:8px; z-index:200;
+  background:var(--soil); border:1px solid var(--soil-line); border-radius:6px;
+  padding:12px; width:340px; box-shadow:0 8px 24px rgba(0,0,0,0.5);
+}
+.radio-full-wrap{position:relative; width:100%; line-height:0;}
+.radio-full-img{width:100%; height:auto; image-rendering:pixelated; display:block;}
+.radio-hotspot{
+  position:absolute; background:rgba(255,255,255,0); border:none; cursor:pointer; padding:0;
+  border-radius:4px; transition:background 0.15s ease;
+}
+.radio-hotspot:hover{background:rgba(138,160,102,0.28);}
+.radio-hotspot.active{background:rgba(138,160,102,0.4); box-shadow:inset 0 0 0 2px rgba(138,160,102,0.8);}
+.radio-hotspot-volume{left:9%; top:13%; width:19%; height:19%; border-radius:50%;}
+.radio-hotspot-tuning{left:27%; top:13%; width:19%; height:19%; border-radius:50%;}
+.radio-hotspot-stereo{left:52%; top:25%; width:10%; height:9%;}
+.radio-hotspot-mono{left:65%; top:25%; width:10%; height:9%;}
+.radio-hotspot-screen{left:57%; top:36%; width:24%; height:11%; cursor:default;}
+.radio-status-line{
+  margin-top:10px; font-size:0.72rem; color:#a8a498; text-align:center;
+  font-family:'Courier New',monospace;
+}
+.radio-track-line{
+  margin-top:4px; font-size:0.76rem; color:var(--gold-bright); text-align:center; font-weight:700;
+}
 .link-btn{background:none; border:none; color:var(--gold-bright); text-decoration:underline; cursor:pointer; font-family:inherit; font-size:0.75rem; padding:0;}
 .link-btn.armed{color:var(--alert); font-weight:700; text-decoration:none;}
 

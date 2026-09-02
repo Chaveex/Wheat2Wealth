@@ -1003,6 +1003,7 @@ function Game({ username, onLoggedOut }) {
           </div>
         </div>
         <div className="top-right">
+          <RadioWidget />
           <span>
             Joueur : <b>{username}</b>
           </span>
@@ -1478,6 +1479,110 @@ function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnt
       onClick={onClick}
       onMouseEnter={onMouseEnter}
     />
+  );
+}
+
+const RADIO_TRACK_NAMES = [
+  'Glory To the East',
+  'Glory to the Wheat',
+  'Harvest for your fatherland',
+  'Kids my patrie',
+  'Stock up for your Motherland',
+  'Symphony For Mother Wheat',
+  'The great day of MotherLand',
+  'The Sun always Rise at East',
+  'The Walk Of The East Farmer',
+];
+
+const RADIO_VOLUME_LEVELS = ['default', '+8db', '-8db'];
+// The HTML5 <audio> element only accepts a 0-1 gain, so these are a stylised
+// approximation of the labelled dB steps rather than a true dB calculation.
+const RADIO_VOLUME_GAIN = { default: 0.5, '+8db': 1, '-8db': 0.18 };
+const RADIO_VOLUME_TEXT = { default: 'Volume normal', '+8db': '+8 dB', '-8db': '-8 dB' };
+
+function radioTrackSrc(name, mode) {
+  const fileName = mode === 'mono' ? `${name}_mono` : name;
+  return `/audio/radio/${encodeURIComponent(fileName)}.mp3`;
+}
+
+function RadioWidget() {
+  const [on, setOn] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const [trackIdx, setTrackIdx] = useState(0);
+  const [mode, setMode] = useState('stereo'); // 'stereo' | 'mono'
+  const [volumeMode, setVolumeMode] = useState('default');
+  const audioRef = useRef(null);
+
+  const trackName = RADIO_TRACK_NAMES[trackIdx];
+  const src = radioTrackSrc(trackName, mode);
+
+  // Keep the element's volume in sync with the selected preset.
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = RADIO_VOLUME_GAIN[volumeMode];
+  }, [volumeMode]);
+
+  // Switching track or stereo/mono mode always restarts playback from the
+  // top of the new file, but only actually plays if the radio is on.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.src = src;
+    el.volume = RADIO_VOLUME_GAIN[volumeMode];
+    if (on) {
+      el.currentTime = 0;
+      el.play().catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (on) el.play().catch(() => {});
+    else el.pause();
+  }, [on]);
+
+  function nextTrack() {
+    setTrackIdx((i) => (i + 1) % RADIO_TRACK_NAMES.length);
+  }
+  function cycleVolume() {
+    setVolumeMode((v) => RADIO_VOLUME_LEVELS[(RADIO_VOLUME_LEVELS.indexOf(v) + 1) % RADIO_VOLUME_LEVELS.length]);
+  }
+
+  return (
+    <div className="radio-widget" onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
+      <audio ref={audioRef} loop preload="auto" />
+      <button className="radio-mini" onClick={() => setOn((v) => !v)} title={on ? 'Éteindre la radio' : 'Allumer la radio'}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/sprites/radio-mini.webp" alt="Radio" />
+        <span className={`radio-led ${on ? 'on' : 'off'}`} />
+      </button>
+      {hovering && (
+        <div className="radio-popover">
+          <div className="radio-full-wrap">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/sprites/radio-full.webp" alt="Radio" className="radio-full-img" />
+            <button className="radio-hotspot radio-hotspot-volume" onClick={cycleVolume} title={`Volume : ${RADIO_VOLUME_TEXT[volumeMode]}`} />
+            <button className="radio-hotspot radio-hotspot-tuning" onClick={nextTrack} title="Changer de station" />
+            <button
+              className={`radio-hotspot radio-hotspot-stereo ${mode === 'stereo' ? 'active' : ''}`}
+              onClick={() => setMode('stereo')}
+              title="Mode stéréo"
+            />
+            <button
+              className={`radio-hotspot radio-hotspot-mono ${mode === 'mono' ? 'active' : ''}`}
+              onClick={() => setMode('mono')}
+              title="Mode mono"
+            />
+            <div className="radio-hotspot radio-hotspot-screen" title={trackName} />
+          </div>
+          <div className="radio-status-line">
+            {on ? 'ON' : 'OFF'} · {mode === 'stereo' ? 'Stéréo' : 'Mono'} · {RADIO_VOLUME_TEXT[volumeMode]}
+          </div>
+          <div className="radio-track-line">{trackName}</div>
+        </div>
+      )}
+    </div>
   );
 }
 
