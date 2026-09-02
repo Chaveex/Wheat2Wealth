@@ -55,6 +55,7 @@ button:hover:not(:disabled){background:var(--gold-bright); color:var(--ink);}
 .sell-btn{background-size:100% 100%; background-color:transparent; border:none; height:56px; font-family:'Courier New',monospace; color:#736f60; font-weight:600;}
 .sell-btn.ready{color:#2B1D0C; font-weight:700;}
 .sell-btn.ready:hover:not(:disabled){color:#2B1D0C; background-size:100% 100%; background-repeat:no-repeat; background-position:center; filter:brightness(1.1);}
+.sell-btn:active:not(:disabled), .sell-btn.kbd-press{transform:scale(0.96); filter:brightness(1.2);}
 
 .mode-btn.active{background:var(--gold); color:var(--ink);}
 .mode-btn.active:hover:not(:disabled){background:var(--gold); color:var(--ink); filter:brightness(1.1);}

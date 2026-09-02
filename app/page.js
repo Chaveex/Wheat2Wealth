@@ -35,6 +35,8 @@ import {
   formatDuration,
   maxWorkerSlots,
   workerSlotCost,
+  sellShortcutCost,
+  SELL_SHORTCUT_MIN_GEN,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -165,6 +167,7 @@ function Game({ username, onLoggedOut }) {
   const [harvestMode, setHarvestMode] = useState('manual');
   const [sowMode, setSowMode] = useState('manual');
   const [courtierActive, setCourtierActive] = useState(true);
+  const [kbdPressed, setKbdPressed] = useState(false);
   const dirtyRef = useRef(false);
   const stateRef = useRef(null);
   stateRef.current = state;
@@ -242,6 +245,30 @@ function Game({ username, onLoggedOut }) {
   useEffect(() => {
     const id = setInterval(() => forceTick((t) => t + 1), 300);
     return () => clearInterval(id);
+  }, []);
+
+  // Space-bar shortcut for a manual sell, once the "Raccourci de vente"
+  // technology is owned and the player hasn't switched it off. preventDefault
+  // fires only when we're actually about to sell, so Space keeps its normal
+  // behaviour (page scroll, activating a focused button...) the rest of the
+  // time.
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.code !== 'Space') return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const s = stateRef.current;
+      if (!s || s.gamePhase !== 'playing') return;
+      if (!s.upgrades.sellShortcut || s.upgrades.sellShortcut.level <= 0) return;
+      if (!s.settings?.sellShortcutEnabled) return;
+      if (s.wheat <= 0) return;
+      e.preventDefault();
+      sell();
+      setKbdPressed(true);
+      setTimeout(() => setKbdPressed(false), 150);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // --- Visual-only feedback: floating "+X" gains, worker/sower ring
@@ -670,7 +697,11 @@ function Game({ username, onLoggedOut }) {
         pushLog(`${def.name} verrouillé(e) : débloque d'abord 4 lignes ou 4 colonnes complètes de parcelles.`);
         return prev;
       }
-      const cost = upgradeCost(key, u.level, prev);
+      if (key === 'sellShortcut' && prev.generation < SELL_SHORTCUT_MIN_GEN) {
+        pushLog(`${def.name} verrouillé(e) : disponible à partir de la génération ${SELL_SHORTCUT_MIN_GEN}.`);
+        return prev;
+      }
+      const cost = key === 'sellShortcut' ? sellShortcutCost(prev) : upgradeCost(key, u.level, prev);
       if (prev.money < cost) {
         pushLog(`Pas assez de trésorerie pour "${def.name}" (${cost}p).`);
         return prev;
@@ -683,6 +714,14 @@ function Game({ username, onLoggedOut }) {
         upgrades: { ...prev.upgrades, [key]: { ...u, level: u.level + 1, totalInvested: (u.totalInvested || 0) + cost } },
         stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + cost },
       };
+    });
+  }
+
+  function toggleSellShortcut() {
+    setState((prev) => {
+      if (!prev) return prev;
+      markDirty();
+      return { ...prev, settings: { ...prev.settings, sellShortcutEnabled: !prev.settings.sellShortcutEnabled } };
     });
   }
 
@@ -1016,7 +1055,7 @@ function Game({ username, onLoggedOut }) {
             <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
             <button
               ref={sellBtnRef}
-              className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''}`}
+              className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''} ${kbdPressed ? 'kbd-press' : ''}`}
               disabled={state.wheat <= 0}
               onClick={sell}
               style={{ backgroundImage: `url(${state.wheat > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})` }}
@@ -1036,6 +1075,24 @@ function Game({ username, onLoggedOut }) {
                   <img
                     src={courtierActive ? '/sprites/toggle-on.webp' : '/sprites/toggle-off.webp'}
                     alt={courtierActive ? 'Activé' : 'Désactivé'}
+                    style={{ height: 26, width: 'auto', imageRendering: 'pixelated', display: 'block' }}
+                  />
+                </button>
+              </div>
+            )}
+            {state.upgrades.sellShortcut.level > 0 && (
+              <div className="row" style={{ marginTop: 10, alignItems: 'center' }}>
+                <span>Raccourci vente (Espace) :</span>
+                <button
+                  onClick={toggleSellShortcut}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', lineHeight: 0 }}
+                  aria-label={state.settings.sellShortcutEnabled ? 'Activé' : 'Désactivé'}
+                  title={state.settings.sellShortcutEnabled ? 'Activé' : 'Désactivé'}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={state.settings.sellShortcutEnabled ? '/sprites/toggle-on.webp' : '/sprites/toggle-off.webp'}
+                    alt={state.settings.sellShortcutEnabled ? 'Activé' : 'Désactivé'}
                     style={{ height: 26, width: 'auto', imageRendering: 'pixelated', display: 'block' }}
                   />
                 </button>
@@ -1113,7 +1170,7 @@ function Game({ username, onLoggedOut }) {
               const def = UPGRADE_DEFS[key];
               const u = state.upgrades[key];
               const maxed = u.level >= def.max;
-              const cost = upgradeCost(key, u.level, state);
+              const cost = key === 'sellShortcut' ? sellShortcutCost(state) : upgradeCost(key, u.level, state);
               let desc = def.desc;
               if (key === 'graines') {
                 desc = `Augmente le rendement par récolte. Rendement actuel : ${yieldAmount(state)} unités de blé par parcelle récoltée.`;
@@ -1139,8 +1196,15 @@ function Game({ username, onLoggedOut }) {
                 desc = u.level <= 0
                   ? 'Vend automatiquement le blé quand le silo est presque plein, contre une taxe.'
                   : `Vend automatiquement tout le blé dès que le silo atteint ${Math.round(COURTIER_THRESHOLD * 100)}% de sa capacité. Taxe actuelle : ${Math.round(courtierTax(state) * 100)}%. Vendre à la main reste plus rentable (jamais de taxe).`;
+              } else if (key === 'sellShortcut') {
+                desc = u.level > 0
+                  ? "Appuie sur Espace pour vendre tout le blé du silo, sans avoir à cliquer. Désactivable dans le panneau Silo."
+                  : state.generation < SELL_SHORTCUT_MIN_GEN
+                    ? `Disponible à partir de la génération ${SELL_SHORTCUT_MIN_GEN} (actuellement génération ${state.generation}).`
+                    : "Débloque la touche Espace comme raccourci pour vendre tout le blé du silo d'un coup.";
               }
-              const gated = (key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(state.plots, state.farmCols, state.farmRows);
+              const gated = ((key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(state.plots, state.farmCols, state.farmRows))
+                || (key === 'sellShortcut' && u.level === 0 && state.generation < SELL_SHORTCUT_MIN_GEN);
               const afford = state.money >= cost;
               let icon = null;
               if (key === 'moissonneuse') icon = harvesterSprite(u.level);
