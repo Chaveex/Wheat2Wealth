@@ -427,6 +427,12 @@ function Game({ username, onLoggedOut }) {
           while (harvestCursorsRef.current.length < workerCount) harvestCursorsRef.current.push(-1);
           while (lastHarvestsRef.current.length < workerCount) lastHarvestsRef.current.push(Date.now());
           for (let w = 0; w < workerCount; w++) {
+            if (prev.upgrades.ouvrier.enabled?.[w] === false) {
+              // Paused: keep the timer pinned to "just reset" so re-enabling
+              // starts a fresh interval instead of firing an instant catch-up.
+              lastHarvestsRef.current[w] = Date.now();
+              continue;
+            }
             if (!lastHarvestsRef.current[w]) lastHarvestsRef.current[w] = Date.now();
             if (Date.now() - lastHarvestsRef.current[w] >= hInterval * 1000) {
               // Sequential on purpose: each worker sees the plots array as
@@ -459,6 +465,10 @@ function Game({ username, onLoggedOut }) {
           while (sowCursorsRef.current.length < sowerCount) sowCursorsRef.current.push(-1);
           while (lastSowsRef.current.length < sowerCount) lastSowsRef.current.push(Date.now());
           for (let w = 0; w < sowerCount; w++) {
+            if (prev.upgrades.semeur.enabled?.[w] === false) {
+              lastSowsRef.current[w] = Date.now();
+              continue;
+            }
             if (!lastSowsRef.current[w]) lastSowsRef.current[w] = Date.now();
             if (Date.now() - lastSowsRef.current[w] >= sInterval * 1000) {
               const idx = findNextIndex(plots, sowCursorsRef.current[w], (p) => p.state === 'empty');
@@ -757,12 +767,26 @@ function Game({ username, onLoggedOut }) {
       const newCount = count + 1;
       cursorsRef.current[newCount - 1] = Math.floor(((newCount - 1) * total) / newCount) - 1;
       lastRef.current[newCount - 1] = Date.now();
+      const enabled = (u.enabled ? u.enabled.slice() : []);
+      enabled[newCount - 1] = true;
       return {
         ...prev,
         money: prev.money - cost,
-        upgrades: { ...prev.upgrades, [key]: { ...u, count: newCount } },
+        upgrades: { ...prev.upgrades, [key]: { ...u, count: newCount, enabled } },
         stats: { ...prev.stats, totalSpent: prev.stats.totalSpent + cost },
       };
+    });
+  }
+
+  function toggleWorkerEnabled(key, w) {
+    setState((prev) => {
+      if (!prev) return prev;
+      const u = prev.upgrades[key];
+      const enabled = u.enabled ? u.enabled.slice() : [];
+      while (enabled.length <= w) enabled.push(true);
+      enabled[w] = !enabled[w];
+      markDirty();
+      return { ...prev, upgrades: { ...prev.upgrades, [key]: { ...u, enabled } } };
     });
   }
 
@@ -804,7 +828,9 @@ function Game({ username, onLoggedOut }) {
       const upgrades = {};
       Object.keys(prev.upgrades).forEach((key) => { upgrades[key] = { level: 0, totalInvested: 0 }; });
       upgrades.ouvrier.count = 1;
+      upgrades.ouvrier.enabled = [true];
       upgrades.semeur.count = 1;
+      upgrades.semeur.enabled = [true];
       pushLog(`Exploitation revendue pour ${value}p. Génération ${prev.generation} : à toi de choisir ta nouvelle exploitation.`);
       markDirty();
       return {
@@ -982,6 +1008,7 @@ function Game({ username, onLoggedOut }) {
                 label={ouvrierCount > 1 ? `Ouvrier #${w + 1} — prochaine récolte` : 'Ouvrier — prochaine récolte'}
                 progress={p}
                 colorVar="--gold"
+                paused={state.upgrades.ouvrier.enabled?.[w] === false}
               />
             ))}
             {state.upgrades.semeur.level > 0 && sowProgresses.map((p, w) => (
@@ -990,6 +1017,7 @@ function Game({ username, onLoggedOut }) {
                 label={semeurCount > 1 ? `Semeur #${w + 1} — prochain semis` : 'Semeur — prochain semis'}
                 progress={p}
                 colorVar="--gold-bright"
+                paused={state.upgrades.semeur.enabled?.[w] === false}
               />
             ))}
             {state.upgrades.moissonneuse.level > 0 && (
@@ -1255,6 +1283,28 @@ function Game({ username, onLoggedOut }) {
                       </button>
                     );
                   })()}
+                  {(key === 'ouvrier' || key === 'semeur') && u.level > 0 && (
+                    <div className="worker-toggle-row">
+                      {Array.from({ length: u.count || 1 }, (_, w) => {
+                        const enabled = u.enabled?.[w] !== false;
+                        return (
+                          <button
+                            key={w}
+                            className="worker-toggle"
+                            onClick={() => toggleWorkerEnabled(key, w)}
+                            title={`${key === 'ouvrier' ? 'Ouvrier' : 'Semeur'} #${w + 1} : ${enabled ? 'actif' : 'en pause'}`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={enabled ? '/sprites/toggle-on.webp' : '/sprites/toggle-off.webp'}
+                              alt={enabled ? 'Actif' : 'En pause'}
+                            />
+                            <span>#{w + 1}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1454,13 +1504,17 @@ function SiloBar({ wheat, cap, bufferCap, showBuffer }) {
   );
 }
 
-function AutoTimerBar({ label, progress, colorVar }) {
+function AutoTimerBar({ label, progress, colorVar, paused }) {
   return (
-    <div className="auto-timer-row">
+    <div className={`auto-timer-row ${paused ? 'paused' : ''}`}>
       <span className="field-row-label">{label}</span>
-      <div className="auto-timer-track">
-        <div className="auto-timer-fill" style={{ width: `${Math.round(progress * 100)}%`, background: `var(${colorVar})` }} />
-      </div>
+      {paused ? (
+        <span className="auto-timer-paused">En pause</span>
+      ) : (
+        <div className="auto-timer-track">
+          <div className="auto-timer-fill" style={{ width: `${Math.round(progress * 100)}%`, background: `var(${colorVar})` }} />
+        </div>
+      )}
     </div>
   );
 }
