@@ -722,6 +722,9 @@ function Game({ username, onLoggedOut }) {
     <>
       <div className="topbar">
         <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
+        <div className="topbar-treasury">
+          Trésorerie : <span>{Math.round(state.money).toLocaleString()}</span> p
+        </div>
         <div className="top-right">
           <span>
             Joueur : <b>{username}</b>
@@ -732,9 +735,6 @@ function Game({ username, onLoggedOut }) {
           <button className={`link-btn ${resetArmed ? 'armed' : ''}`} onClick={handleReset}>
             {resetArmed ? 'Confirmer ? Tout sera perdu' : 'réinitialiser ma partie'}
           </button>
-          <div className="wallet">
-            Trésorerie : <span>{Math.round(state.money).toLocaleString()}</span> p
-          </div>
           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--gold)', border: '1px solid rgba(138,160,102,0.4)', borderRadius: 3, padding: '4px 10px' }}>
             {perSecond.toFixed(2)} p/s
           </div>
@@ -1137,7 +1137,7 @@ function SiloBar({ wheat, cap }) {
 function AutoTimerBar({ label, progress, colorVar }) {
   return (
     <div className="auto-timer-row">
-      <span className="label">{label}</span>
+      <span className="field-row-label">{label}</span>
       <div className="auto-timer-track">
         <div className="auto-timer-fill" style={{ width: `${Math.round(progress * 100)}%`, background: `var(${colorVar})` }} />
       </div>
@@ -1147,8 +1147,8 @@ function AutoTimerBar({ label, progress, colorVar }) {
 
 function ModeToggle({ label, value, onChange, combineLabel, combineIcon }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.78rem', color: '#a8a498', marginBottom: 10 }}>
-      <span style={{ minWidth: 112, display: 'inline-block' }}>{label}</span>
+    <div className="auto-timer-row">
+      <span className="field-row-label">{label}</span>
       <div style={{ display: 'flex', gap: 6 }}>
         <button
           className={`mode-btn ${value === 'manual' ? 'active' : ''}`}
