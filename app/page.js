@@ -1702,7 +1702,7 @@ function AutoTimerBar({ label, progress, colorVar, paused, onToggle }) {
           <img src={paused ? '/sprites/toggle-off.webp' : '/sprites/toggle-on.webp'} alt={paused ? 'En pause' : 'Actif'} />
         </button>
       )}
-      <span className="field-row-label">{label}</span>
+      <span className="field-row-label" style={{ color: `var(${colorVar})` }}>{label}</span>
       {paused ? (
         <span className="auto-timer-paused">En pause</span>
       ) : (
