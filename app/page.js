@@ -313,6 +313,17 @@ function Game({ username, onLoggedOut }) {
   function queueSound(name) {
     pendingEffectsRef.current.push({ kind: 'sound', name });
   }
+  function queueStopSound(name) {
+    pendingEffectsRef.current.push({ kind: 'stopSound', name });
+  }
+
+  function stopOverflowSound() {
+    const el = overflowAudioRef.current;
+    if (el && !el.paused) {
+      el.pause();
+      el.currentTime = 0;
+    }
+  }
 
   function addFlash(idx, type) {
     const id = ++flashIdRef.current;
@@ -364,6 +375,9 @@ function Game({ username, onLoggedOut }) {
             pushLog(`Son non joué (${err?.name || 'erreur inconnue'}) — vérifie public/soundEffect/.`);
           });
         }
+      }
+      else if (effect.kind === 'stopSound') {
+        if (effect.name === 'overflowWarning') stopOverflowSound();
       }
     });
   });
@@ -523,8 +537,9 @@ function Game({ username, onLoggedOut }) {
           if (wheat > nominalCap && !wasOverflowingRef.current) {
             wasOverflowingRef.current = true;
             queueSound('overflowWarning');
-          } else if (wheat <= nominalCap) {
+          } else if (wheat <= nominalCap && wasOverflowingRef.current) {
             wasOverflowingRef.current = false;
+            queueStopSound('overflowWarning');
           }
         }
 
@@ -708,6 +723,7 @@ function Game({ username, onLoggedOut }) {
       markDirty();
       wasOverflowingRef.current = false;
       queueSound('manualSold');
+      queueStopSound('overflowWarning');
       queueMoneyGain(total);
       return {
         ...prev,
@@ -1551,7 +1567,7 @@ function RadioWidget() {
 
   return (
     <div className="radio-widget" onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
-      <audio ref={audioRef} loop preload="auto" />
+      <audio ref={audioRef} preload="auto" onEnded={() => setTrackIdx((i) => (i + 1) % RADIO_TRACK_NAMES.length)} />
       <button className="radio-mini" onClick={() => setOn((v) => !v)} title={on ? 'Éteindre la radio' : 'Allumer la radio'}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/sprites/radio-mini.webp" alt="Radio" />
