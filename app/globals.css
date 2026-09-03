@@ -263,6 +263,12 @@ input{
 .upgrade-name{font-weight:700; font-size:0.86rem;}
 .upgrade-level{font-size:0.72rem; color:var(--ink-soft);}
 .worker-count-badge{color:var(--gold); font-weight:700;}
+.upgrade-top-clickable{cursor:pointer; user-select:none;}
+.tech-max-badge{color:var(--gold); font-weight:700; font-size:0.72rem; margin-left:6px;}
+.tech-chevron{
+  display:inline-block; margin-left:8px; font-size:0.7rem; color:var(--ink-soft);
+  transition:transform 0.15s ease;
+}
 .worker-toggle-inline{
   display:flex; align-items:center; background:none; border:none; padding:0;
   cursor:pointer; flex-shrink:0;

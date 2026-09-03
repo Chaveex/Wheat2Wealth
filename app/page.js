@@ -177,6 +177,10 @@ function Game({ username, onLoggedOut }) {
   const [harvestMode, setHarvestMode] = useState('manual');
   const [sowMode, setSowMode] = useState('manual');
   const [courtierActive, setCourtierActive] = useState(true);
+  const [collapsedTechs, setCollapsedTechs] = useState({});
+  function toggleTechCollapsed(key, currentlyCollapsed) {
+    setCollapsedTechs((prev) => ({ ...prev, [key]: !currentlyCollapsed }));
+  }
   const [kbdPressed, setKbdPressed] = useState(false);
   const dirtyRef = useRef(false);
   const stateRef = useRef(null);
@@ -1282,6 +1286,7 @@ function Game({ username, onLoggedOut }) {
               const def = UPGRADE_DEFS[key];
               const u = state.upgrades[key];
               const maxed = u.level >= def.max;
+              const isCollapsed = collapsedTechs[key] !== undefined ? collapsedTechs[key] : maxed;
               const cost = key === 'sellShortcut'
                 ? sellShortcutCost(state)
                 : (key === 'sacOuvrier' || key === 'sacSemeur')
@@ -1338,13 +1343,17 @@ function Game({ username, onLoggedOut }) {
               else if (key === 'semoirMeca') icon = seederSprite(u.level);
               return (
                 <div className="upgrade" key={key}>
-                  <div className="upgrade-top">
+                  <div
+                    className="upgrade-top upgrade-top-clickable"
+                    onClick={() => toggleTechCollapsed(key, isCollapsed)}
+                  >
                     <span className="upgrade-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {icon && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={icon} alt="" style={{ height: '1.3em', width: 'auto', imageRendering: 'pixelated' }} />
                       )}
                       {def.name}
+                      {isCollapsed && maxed && <span className="tech-max-badge">✓ MAX</span>}
                     </span>
                     <span className="upgrade-level">
                       Niv. {u.level}{maxed ? ' (max)' : `/${def.max}`}
@@ -1357,23 +1366,28 @@ function Game({ username, onLoggedOut }) {
                       {key === 'semeur' && bagSize(state, 'sacSemeur') > 1 && (
                         <span className="worker-count-badge"> · ×{bagSize(state, 'sacSemeur')} parcelles/action</span>
                       )}
+                      <span className="tech-chevron">{isCollapsed ? '▸' : '▾'}</span>
                     </span>
                   </div>
-                  <div className="upgrade-desc">{desc}</div>
-                  <InvestButton maxed={maxed} afford={afford && !gated} cost={cost} onClick={() => buyUpgrade(key)} />
-                  {(key === 'ouvrier' || key === 'semeur') && u.level > 0 && (u.count || 1) < maxSlots && (() => {
-                    const hireCost = workerSlotCost((u.count || 1) + 1, state);
-                    const canHire = state.money >= hireCost;
-                    return (
-                      <button
-                        className={`full-btn invest-btn ${canHire ? 'on' : 'off'}`}
-                        style={{ marginTop: 6, backgroundImage: `url(/sprites/${canHire ? 'btn-on' : 'btn-off'}.webp)` }}
-                        onClick={() => hireWorker(key)}
-                      >
-                        Embaucher un {key === 'ouvrier' ? 'ouvrier' : 'semeur'} supplémentaire — {hireCost}p
-                      </button>
-                    );
-                  })()}
+                  {!isCollapsed && (
+                    <>
+                      <div className="upgrade-desc">{desc}</div>
+                      <InvestButton maxed={maxed} afford={afford && !gated} cost={cost} onClick={() => buyUpgrade(key)} />
+                      {(key === 'ouvrier' || key === 'semeur') && u.level > 0 && (u.count || 1) < maxSlots && (() => {
+                        const hireCost = workerSlotCost((u.count || 1) + 1, state);
+                        const canHire = state.money >= hireCost;
+                        return (
+                          <button
+                            className={`full-btn invest-btn ${canHire ? 'on' : 'off'}`}
+                            style={{ marginTop: 6, backgroundImage: `url(/sprites/${canHire ? 'btn-on' : 'btn-off'}.webp)` }}
+                            onClick={() => hireWorker(key)}
+                          >
+                            Embaucher un {key === 'ouvrier' ? 'ouvrier' : 'semeur'} supplémentaire — {hireCost}p
+                          </button>
+                        );
+                      })()}
+                    </>
+                  )}
                 </div>
               );
             })}
