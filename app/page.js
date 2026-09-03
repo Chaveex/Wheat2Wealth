@@ -44,6 +44,9 @@ import {
   SILO_BUFFER_MULT,
   fieldCellSize,
   MAX_FARM_SIZE,
+  bagSize,
+  bagRequiredGen,
+  bagUpgradeCost,
 } from '@/lib/gameLogic';
 
 export default function Home() {
@@ -461,8 +464,11 @@ function Game({ username, onLoggedOut }) {
               // Sequential on purpose: each worker sees the plots array as
               // already updated by the ones before it this same tick, so
               // two workers can never both grab the same ready plot.
-              const idx = findNextIndex(plots, harvestCursorsRef.current[w], (p) => p.state === 'ready');
-              if (idx !== -1) {
+              const bagCount = bagSize(prev, 'sacOuvrier');
+              let cursor = harvestCursorsRef.current[w];
+              for (let b = 0; b < bagCount; b++) {
+                const idx = findNextIndex(plots, cursor, (p) => p.state === 'ready');
+                if (idx === -1) break;
                 const amount = yieldAmount(prev);
                 const cap = siloEffectiveCap(prev);
                 const space = cap - wheat;
@@ -472,11 +478,12 @@ function Game({ username, onLoggedOut }) {
                 wheat += added;
                 statHarvested += added;
                 statLost += amount - added;
-                harvestCursorsRef.current[w] = idx;
+                cursor = idx;
                 changed = true;
                 queueFlash(idx, 'worker');
                 if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
               }
+              harvestCursorsRef.current[w] = cursor;
               lastHarvestsRef.current[w] = Date.now();
             }
           }
@@ -494,18 +501,23 @@ function Game({ username, onLoggedOut }) {
             }
             if (!lastSowsRef.current[w]) lastSowsRef.current[w] = Date.now();
             if (Date.now() - lastSowsRef.current[w] >= sInterval * 1000) {
-              const idx = findNextIndex(plots, sowCursorsRef.current[w], (p) => p.state === 'empty');
-              if (idx !== -1 && money >= SEED_COST) {
+              const bagCount = bagSize(prev, 'sacSemeur');
+              let cursor = sowCursorsRef.current[w];
+              for (let b = 0; b < bagCount; b++) {
+                if (money < SEED_COST) break;
+                const idx = findNextIndex(plots, cursor, (p) => p.state === 'empty');
+                if (idx === -1) break;
                 if (plots === prev.plots) plots = plots.slice();
                 plots[idx] = { state: 'growing', plantedAt: Date.now() };
                 money -= SEED_COST;
                 statSpent += SEED_COST;
-                sowCursorsRef.current[w] = idx;
+                cursor = idx;
                 changed = true;
                 dirtyRef.current = true;
                 queueFlash(idx, 'sower');
                 queueGain(idx, '🌱', 'gain-sow');
               }
+              sowCursorsRef.current[w] = cursor;
               lastSowsRef.current[w] = Date.now();
             }
           }
@@ -754,7 +766,19 @@ function Game({ username, onLoggedOut }) {
         pushLog(`${def.name} verrouillé(e) : disponible à partir de la génération ${SELL_SHORTCUT_MIN_GEN}.`);
         return prev;
       }
-      const cost = key === 'sellShortcut' ? sellShortcutCost(prev) : upgradeCost(key, u.level, prev);
+      if ((key === 'sacOuvrier' || key === 'sacSemeur')) {
+        const nextLevelCount = u.level + 2;
+        const requiredGen = bagRequiredGen(nextLevelCount);
+        if (prev.generation < requiredGen) {
+          pushLog(`${def.name} verrouillé(e) : niveau ${nextLevelCount} disponible à partir de la génération ${requiredGen}.`);
+          return prev;
+        }
+      }
+      const cost = key === 'sellShortcut'
+        ? sellShortcutCost(prev)
+        : (key === 'sacOuvrier' || key === 'sacSemeur')
+          ? bagUpgradeCost(key, prev)
+          : upgradeCost(key, u.level, prev);
       if (prev.money < cost) {
         pushLog(`Pas assez de trésorerie pour "${def.name}" (${cost}p).`);
         return prev;
@@ -1258,7 +1282,11 @@ function Game({ username, onLoggedOut }) {
               const def = UPGRADE_DEFS[key];
               const u = state.upgrades[key];
               const maxed = u.level >= def.max;
-              const cost = key === 'sellShortcut' ? sellShortcutCost(state) : upgradeCost(key, u.level, state);
+              const cost = key === 'sellShortcut'
+                ? sellShortcutCost(state)
+                : (key === 'sacOuvrier' || key === 'sacSemeur')
+                  ? bagUpgradeCost(key, state)
+                  : upgradeCost(key, u.level, state);
               let desc = def.desc;
               if (key === 'graines') {
                 desc = `Augmente le rendement par récolte. Rendement actuel : ${yieldAmount(state)} unités de blé par parcelle récoltée.`;
@@ -1290,9 +1318,20 @@ function Game({ username, onLoggedOut }) {
                   : state.generation < SELL_SHORTCUT_MIN_GEN
                     ? `Disponible à partir de la génération ${SELL_SHORTCUT_MIN_GEN} (actuellement génération ${state.generation}).`
                     : "Débloque la touche Espace comme raccourci pour vendre tout le blé du silo d'un coup.";
+              } else if (key === 'sacOuvrier' || key === 'sacSemeur') {
+                const currentBag = bagSize(state, key);
+                const nextLevelCount = u.level + 2;
+                const requiredGen = bagRequiredGen(nextLevelCount);
+                const verb = key === 'sacOuvrier' ? 'récolte' : 'sème';
+                desc = u.level >= UPGRADE_DEFS[key].max
+                  ? `Chaque ouvrier ${verb} ${currentBag} parcelles adjacentes par action (niveau maximal).`
+                  : state.generation < requiredGen
+                    ? `Niveau ${nextLevelCount} disponible à partir de la génération ${requiredGen} (actuellement génération ${state.generation}). Actuellement : ${currentBag} parcelle${currentBag > 1 ? 's' : ''} par action.`
+                    : `Chaque ${key === 'sacOuvrier' ? 'ouvrier' : 'semeur'} ${verb} actuellement ${currentBag} parcelle${currentBag > 1 ? 's' : ''} adjacente${currentBag > 1 ? 's' : ''} par action, au lieu d'une seule.`;
               }
               const gated = ((key === 'moissonneuse' || key === 'semoirMeca') && u.level === 0 && !meets4LinesRequirement(state.plots, state.farmCols, state.farmRows))
-                || (key === 'sellShortcut' && u.level === 0 && state.generation < SELL_SHORTCUT_MIN_GEN);
+                || (key === 'sellShortcut' && u.level === 0 && state.generation < SELL_SHORTCUT_MIN_GEN)
+                || ((key === 'sacOuvrier' || key === 'sacSemeur') && u.level < UPGRADE_DEFS[key].max && state.generation < bagRequiredGen(u.level + 2));
               const afford = state.money >= cost;
               let icon = null;
               if (key === 'moissonneuse') icon = harvesterSprite(u.level);
