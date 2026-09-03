@@ -99,7 +99,7 @@ input{
 .metric-value.waste{color:var(--alert);}
 .top-right{justify-self:end; display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-size:0.8rem;}
 
-.radio-widget{position:relative; display:flex; align-items:center;}
+.radio-widget{position:relative; display:flex; align-items:center; padding-bottom:8px;}
 .radio-mini{
   position:relative; background:none; border:none; padding:0; cursor:pointer;
   display:block; line-height:0;
@@ -112,7 +112,7 @@ input{
 .radio-led.on{background:#8AA066; box-shadow:0 0 4px rgba(138,160,102,0.9);}
 
 .radio-popover{
-  position:absolute; top:100%; right:0; margin-top:8px; z-index:200;
+  position:absolute; top:100%; right:0; z-index:200;
   background:var(--soil); border:1px solid var(--soil-line); border-radius:6px;
   padding:12px; width:340px; box-shadow:0 8px 24px rgba(0,0,0,0.5);
 }
