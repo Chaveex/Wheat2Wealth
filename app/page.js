@@ -1073,7 +1073,7 @@ function Game({ username, onLoggedOut }) {
             {state.upgrades.ouvrier.level > 0 && harvestProgresses.map((p, w) => (
               <AutoTimerBar
                 key={`h${w}`}
-                label={ouvrierCount > 1 ? `Ouvrier #${w + 1} — prochaine récolte` : 'Ouvrier — prochaine récolte'}
+                label={`${ouvrierCount > 1 ? `Ouvrier #${w + 1}` : 'Ouvrier'} — prochaine récolte${bagSize(state, 'sacOuvrier') > 1 ? ` (×${bagSize(state, 'sacOuvrier')})` : ''}`}
                 progress={p}
                 colorVar="--gold"
                 paused={state.upgrades.ouvrier.enabled?.[w] === false}
@@ -1083,7 +1083,7 @@ function Game({ username, onLoggedOut }) {
             {state.upgrades.semeur.level > 0 && sowProgresses.map((p, w) => (
               <AutoTimerBar
                 key={`s${w}`}
-                label={semeurCount > 1 ? `Semeur #${w + 1} — prochain semis` : 'Semeur — prochain semis'}
+                label={`${semeurCount > 1 ? `Semeur #${w + 1}` : 'Semeur'} — prochain semis${bagSize(state, 'sacSemeur') > 1 ? ` (×${bagSize(state, 'sacSemeur')})` : ''}`}
                 progress={p}
                 colorVar="--gold-bright"
                 paused={state.upgrades.semeur.enabled?.[w] === false}
@@ -1350,6 +1350,12 @@ function Game({ username, onLoggedOut }) {
                       Niv. {u.level}{maxed ? ' (max)' : `/${def.max}`}
                       {(key === 'ouvrier' || key === 'semeur') && (u.count || 1) > 1 && (
                         <span className="worker-count-badge"> · {u.count}/{maxSlots}</span>
+                      )}
+                      {key === 'ouvrier' && bagSize(state, 'sacOuvrier') > 1 && (
+                        <span className="worker-count-badge"> · ×{bagSize(state, 'sacOuvrier')} parcelles/action</span>
+                      )}
+                      {key === 'semeur' && bagSize(state, 'sacSemeur') > 1 && (
+                        <span className="worker-count-badge"> · ×{bagSize(state, 'sacSemeur')} parcelles/action</span>
                       )}
                     </span>
                   </div>

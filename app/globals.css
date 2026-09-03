@@ -210,7 +210,7 @@ input{
 .auto-timer-row{display:flex; align-items:center; gap:10px; font-size:0.76rem; color:#a8a498; margin-bottom:10px;}
 .auto-timer-row.paused{opacity:0.6;}
 .auto-timer-paused{font-style:italic; font-size:0.72rem; color:var(--warn);}
-.field-row-label{min-width:172px; display:inline-block; flex-shrink:0;}
+.field-row-label{min-width:212px; display:inline-block; flex-shrink:0;}
 .auto-timer-track{flex:1; height:6px; background:rgba(255,255,255,0.08); border-radius:3px; overflow:hidden;}
 .auto-timer-fill{height:100%; border-radius:3px; transition:width 0.1s linear;}
 
