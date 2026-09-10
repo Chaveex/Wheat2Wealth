@@ -92,7 +92,7 @@ function AuthScreen({ onLoggedIn }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(errorMessage(data.error));
+        setError(errorMessage(data.error) + (data.detail ? ` (${data.detail})` : ''));
         return;
       }
       onLoggedIn(data.username);
@@ -1023,31 +1023,8 @@ function Game({ username, onLoggedOut }) {
         onError={() => console.error("Le fichier /soundEffect/Heavy_soviet_warning_reverb.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
       />
       <div className="topbar">
-        <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
-        <div className="topbar-metrics">
-          <div className="metric">
-            <span className="metric-label">Trésorerie</span>
-            <span className="metric-value treasury">
-              {Math.round(state.money).toLocaleString()}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />
-            </span>
-          </div>
-          <div className="metric">
-            <span className="metric-label">Revenu</span>
-            <span className="metric-value revenue">
-              {perSecond >= 0 ? '+' : ''}{perSecond.toFixed(1)}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />/s
-            </span>
-          </div>
-          <div className="metric">
-            <span className="metric-label">Gaspillage</span>
-            <span className="metric-value waste">{wastePct.toFixed(1)}%</span>
-          </div>
-        </div>
-        <div className="top-right">
-          <RadioWidget />
+        <div className="topbar-left">
+          <h1><img src="/sprites/logo.webp" alt="Wheat2Wealth" style={{ width: 126.23, height: 44, display: 'block' }} /></h1>
           <span>
             Joueur : <b>{username}</b>
           </span>
@@ -1057,6 +1034,39 @@ function Game({ username, onLoggedOut }) {
           <button className={`link-btn ${resetArmed ? 'armed' : ''}`} onClick={handleReset}>
             {resetArmed ? 'Confirmer ? Tout sera perdu' : 'réinitialiser ma partie'}
           </button>
+        </div>
+        <div className="top-right">
+          <div className="topbar-metrics">
+            <div className="metric">
+              <span className="metric-label">Trésorerie</span>
+              <div className="metric-value-mech">
+                <MechCounter value={state.money} intDigits={7} className="money" />
+                <span className="mech-decoration after">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />
+                </span>
+              </div>
+            </div>
+            <div className="metric">
+              <span className="metric-label">Revenu</span>
+              <div className="metric-value-mech">
+                <span className="mech-decoration before">{perSecond >= 0 ? '+' : '-'}</span>
+                <MechCounter value={perSecond} intDigits={2} decimals={1} className="revenue" />
+                <span className="mech-decoration after">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />/s
+                </span>
+              </div>
+            </div>
+            <div className="metric">
+              <span className="metric-label">Gaspillage</span>
+              <div className="metric-value-mech">
+                <MechCounter value={wastePct} intDigits={2} decimals={1} className="waste" />
+                <span className="mech-decoration after">%</span>
+              </div>
+            </div>
+          </div>
+          <RadioWidget />
         </div>
       </div>
 
@@ -1216,7 +1226,7 @@ function Game({ username, onLoggedOut }) {
             )}
           </Section>
           <hr />
-          <Section title="Exploitation">
+          <Section title="Revente de l'exploitation">
             <div className="row"><span>Génération</span><span>{state.generation}</span></div>
             <div className="row"><span>Taille du terrain</span><span>{state.farmCols} × {state.farmRows}</span></div>
             <p style={{ fontSize: '0.74rem', color: 'var(--ink-soft)', margin: '6px 0 8px', lineHeight: 1.4 }}>
@@ -1235,14 +1245,14 @@ function Game({ username, onLoggedOut }) {
               reste cependant toujours gratuite, quoi qu&rsquo;il arrive.
             </p>
             <button
-              className={`full-btn ${sellFarmArmed ? 'armed' : ''}`}
+              className={`full-btn propaganda-btn ${sellFarmArmed ? 'armed' : ''}`}
               disabled={state.gamePhase !== 'playing'}
               onClick={handleSellFarm}
               style={sellFarmArmed ? { background: 'var(--alert)', color: '#fff' } : undefined}
             >
               {sellFarmArmed
-                ? `Confirmer la vente ? (${computeResaleValue(state)}p)`
-                : `Revente de l'exploitation (${computeResaleValue(state)}p)`}
+                ? `CONFIRMER LA LIQUIDATION ? (${computeResaleValue(state)}p)`
+                : `LIQUIDER ET CÉDER À L'ÉTAT (${computeResaleValue(state)}p)`}
             </button>
           </Section>
           <hr />
@@ -1281,7 +1291,7 @@ function Game({ username, onLoggedOut }) {
         </div>
 
         <div className="ledger panel-col-3">
-          <Section title="Investissements">
+          <Section title="Plans d'État pour la Modernisation">
             {Object.keys(UPGRADE_DEFS).map((key) => {
               const def = UPGRADE_DEFS[key];
               const u = state.upgrades[key];
@@ -1460,7 +1470,7 @@ function Game({ username, onLoggedOut }) {
             </div>
           </Section>
           <hr />
-          <Section title="Classement" defaultCollapsed>
+          <Section title="Classement des Stakhanovistes du District" defaultCollapsed className="classement-section">
             <ul className="leaderboard">
               {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
               {leaderboard.map((entry, idx) => (
@@ -1470,7 +1480,7 @@ function Game({ username, onLoggedOut }) {
                 </li>
               ))}
             </ul>
-            <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le classement</button>
+            <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le Classement des Stakhanovistes du District</button>
           </Section>
         </div>
       </div>
@@ -1478,10 +1488,10 @@ function Game({ username, onLoggedOut }) {
   );
 }
 
-function Section({ title, defaultCollapsed = false, children }) {
+function Section({ title, defaultCollapsed = false, className, children }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   return (
-    <div className="ledger-section">
+    <div className={`ledger-section ${className || ''}`}>
       <h2
         onClick={() => setCollapsed((c) => !c)}
         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
@@ -1578,6 +1588,47 @@ const RADIO_VOLUME_TEXT = { default: 'Volume normal', '+8db': '+8 dB', '-8db': '
 function radioTrackSrc(name, mode) {
   const fileName = mode === 'mono' ? `${name}_mono` : name;
   return `/audio/radio/${encodeURIComponent(fileName)}.mp3`;
+}
+
+// Digit height in px must match --mech-digit-h in globals.css so the roller
+// translateY math lines up with the CSS transition.
+const MECH_DIGIT_H = 26;
+
+function DigitSlot({ digit, decimal }) {
+  return (
+    <div className={`digit-slot ${decimal ? 'decimal' : ''}`}>
+      <div className="digit-strip" style={{ transform: `translateY(-${digit * MECH_DIGIT_H}px)` }}>
+        {Array.from({ length: 10 }, (_, d) => <div key={d}>{d}</div>)}
+      </div>
+    </div>
+  );
+}
+
+// A mechanical roller counter à la compteur de production d'usine : chaque
+// chiffre est un tambour indépendant qui tourne vers la bonne valeur au lieu
+// de simplement remplacer le texte.
+function MechCounter({ value, intDigits, decimals = 0, className = '' }) {
+  const abs = Math.abs(value || 0);
+  const scaled = Math.round(abs * Math.pow(10, decimals));
+  const totalDigits = intDigits + decimals;
+  const str = String(scaled).padStart(totalDigits, '0').slice(-totalDigits);
+  const intPart = str.slice(0, intDigits);
+  const decPart = decimals > 0 ? str.slice(intDigits) : '';
+  return (
+    <div className={`mech-counter ${className}`}>
+      {intPart.split('').map((d, i) => (
+        <DigitSlot key={`i${i}`} digit={parseInt(d, 10)} />
+      ))}
+      {decimals > 0 && (
+        <>
+          <span className="static-glyph">,</span>
+          {decPart.split('').map((d, i) => (
+            <DigitSlot key={`d${i}`} digit={parseInt(d, 10)} decimal />
+          ))}
+        </>
+      )}
+    </div>
+  );
 }
 
 function RadioWidget() {
