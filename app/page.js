@@ -611,6 +611,28 @@ function Game({ username, onLoggedOut }) {
     dirtyRef.current = true;
   }
 
+  // Nouvel objet Audio à chaque appel : permet à plusieurs récoltes rapprochées
+  // (clics rapides) de se superposer sans couper le son précédent.
+  function playHarvestSound() {
+    try {
+      const audio = new Audio('/audio/sfx/recolte.mp3');
+      audio.volume = 0.55;
+      audio.play().catch(() => {});
+    } catch (e) {
+      // Lecture audio indisponible (autoplay bloqué, etc.) — on ignore silencieusement.
+    }
+  }
+
+  function playSowSound() {
+    try {
+      const audio = new Audio('/audio/sfx/semis.mp3');
+      audio.volume = 0.55;
+      audio.play().catch(() => {});
+    } catch (e) {
+      // Lecture audio indisponible (autoplay bloqué, etc.) — on ignore silencieusement.
+    }
+  }
+
   // Best-effort save if the tab is closed/reloaded before the next autosave
   // tick — keepalive lets the request survive the page unloading.
   useEffect(() => {
@@ -657,6 +679,7 @@ function Game({ username, onLoggedOut }) {
   }
 
   function plant(i) {
+    if (state && state.money >= SEED_COST) playSowSound();
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
@@ -689,6 +712,7 @@ function Game({ username, onLoggedOut }) {
   }
 
   function harvest(i) {
+    playHarvestSound();
     setState((prev) => {
       if (!prev) return prev;
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
@@ -1035,37 +1059,37 @@ function Game({ username, onLoggedOut }) {
             {resetArmed ? 'Confirmer ? Tout sera perdu' : 'réinitialiser ma partie'}
           </button>
         </div>
-        <div className="top-right">
-          <div className="topbar-metrics">
-            <div className="metric">
-              <span className="metric-label">Trésorerie</span>
-              <div className="metric-value-mech">
-                <MechCounter value={state.money} intDigits={7} className="money" />
-                <span className="mech-decoration after">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />
-                </span>
-              </div>
-            </div>
-            <div className="metric">
-              <span className="metric-label">Revenu</span>
-              <div className="metric-value-mech">
-                <span className="mech-decoration before">{perSecond >= 0 ? '+' : '-'}</span>
-                <MechCounter value={perSecond} intDigits={2} decimals={1} className="revenue" />
-                <span className="mech-decoration after">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />/s
-                </span>
-              </div>
-            </div>
-            <div className="metric">
-              <span className="metric-label">Gaspillage</span>
-              <div className="metric-value-mech">
-                <MechCounter value={wastePct} intDigits={2} decimals={1} className="waste" />
-                <span className="mech-decoration after">%</span>
-              </div>
+        <div className="topbar-metrics">
+          <div className="metric">
+            <span className="metric-label">Trésorerie</span>
+            <div className="metric-value-mech">
+              <MechCounter value={state.money} intDigits={10} className="money" />
+              <span className="mech-decoration after">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />
+              </span>
             </div>
           </div>
+          <div className="metric">
+            <span className="metric-label">Revenu</span>
+            <div className="metric-value-mech">
+              <span className="mech-decoration before">{perSecond >= 0 ? '+' : '-'}</span>
+              <MechCounter value={perSecond} intDigits={2} decimals={1} className="revenue" />
+              <span className="mech-decoration after">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />/s
+              </span>
+            </div>
+          </div>
+          <div className="metric">
+            <span className="metric-label">Gaspillage</span>
+            <div className="metric-value-mech">
+              <MechCounter value={wastePct} intDigits={2} decimals={1} className="waste" />
+              <span className="mech-decoration after">%</span>
+            </div>
+          </div>
+        </div>
+        <div className="top-right">
           <RadioWidget />
         </div>
       </div>
