@@ -372,7 +372,10 @@ input{
   background:var(--paper); color:var(--ink); padding:32px 30px; border-radius:6px;
   max-width:360px; width:100%;
 }
-.auth-card h1{color:var(--ink); margin-bottom:6px;}
+.auth-card h1{
+  color:var(--ink); margin-bottom:6px; font-size:1.05rem; line-height:1.3;
+  white-space:nowrap; overflow-wrap:normal; letter-spacing:0.01em;
+}
 .auth-card p{font-size:0.85rem; color:var(--ink-soft); margin:0 0 18px;}
 .auth-error{font-size:0.78rem; color:var(--alert); min-height:1.2em; margin-bottom:8px;}
 .auth-note{font-size:0.68rem; color:var(--ink-soft); margin-top:10px; line-height:1.4;}

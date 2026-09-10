@@ -603,7 +603,7 @@ function Game({ username, onLoggedOut }) {
           setSaveError('Impossible de joindre le serveur pour sauvegarder. Nouvelle tentative dans quelques secondes — ne ferme pas cette page.');
         }
       }
-    }, 4000);
+    }, 2000);
     return () => clearInterval(id);
   }, [refreshLeaderboard]);
 
@@ -633,26 +633,51 @@ function Game({ username, onLoggedOut }) {
     }
   }
 
-  // Best-effort save if the tab is closed/reloaded before the next autosave
-  // tick — keepalive lets the request survive the page unloading.
+  // Sauvegarde de secours si l'onglet est fermé/rechargé avant le prochain
+  // tick d'autosave. On préfère sendBeacon : contrairement à fetch(keepalive),
+  // le navigateur garantit sa mise en file d'attente et son envoi même pendant
+  // le déchargement de la page — fetch keepalive peut être silencieusement
+  // annulé sur certains navigateurs (Safari en particulier) ou si la charge
+  // dépasse ~64 Ko, ce qui provoquait la perte de progression au F5 signalée
+  // par un joueur : le rechargement relisait alors l'état d'avant, plus vieux.
+  // On déclenche aussi ce filet sur "visibilitychange", qui se déclenche
+  // souvent plus tôt et de façon plus fiable que beforeunload/pagehide,
+  // notamment sur mobile.
   useEffect(() => {
-    function handleUnload() {
-      if (dirtyRef.current && stateRef.current) {
-        const money = Math.round(stateRef.current.money);
-        const newBest = Math.max(bestScoreRef.current, money);
+    function saveNow() {
+      if (!dirtyRef.current || !stateRef.current) return;
+      dirtyRef.current = false;
+      const money = Math.round(stateRef.current.money);
+      const newBest = Math.max(bestScoreRef.current, money);
+      const payload = JSON.stringify({ state: stateRef.current, bestScore: newBest });
+      let sent = false;
+      if (navigator.sendBeacon) {
+        try {
+          const blob = new Blob([payload], { type: 'application/json' });
+          sent = navigator.sendBeacon('/api/game/state', blob);
+        } catch {
+          sent = false;
+        }
+      }
+      if (!sent) {
         fetch('/api/game/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: stateRef.current, bestScore: newBest }),
+          body: payload,
           keepalive: true,
         }).catch(() => {});
       }
     }
-    window.addEventListener('beforeunload', handleUnload);
-    window.addEventListener('pagehide', handleUnload);
+    function handleVisibility() {
+      if (document.visibilityState === 'hidden') saveNow();
+    }
+    window.addEventListener('beforeunload', saveNow);
+    window.addEventListener('pagehide', saveNow);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
-      window.removeEventListener('beforeunload', handleUnload);
-      window.removeEventListener('pagehide', handleUnload);
+      window.removeEventListener('beforeunload', saveNow);
+      window.removeEventListener('pagehide', saveNow);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
@@ -1074,7 +1099,7 @@ function Game({ username, onLoggedOut }) {
             <span className="metric-label">Revenu</span>
             <div className="metric-value-mech">
               <span className="mech-decoration before">{perSecond >= 0 ? '+' : '-'}</span>
-              <MechCounter value={perSecond} intDigits={2} decimals={1} className="revenue" />
+              <MechCounter value={perSecond} intDigits={5} decimals={1} className="revenue" />
               <span className="mech-decoration after">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/sprites/currencyCoin.webp" alt="p" className="currency-icon-inline" />/s
@@ -1084,7 +1109,7 @@ function Game({ username, onLoggedOut }) {
           <div className="metric">
             <span className="metric-label">Gaspillage</span>
             <div className="metric-value-mech">
-              <MechCounter value={wastePct} intDigits={2} decimals={1} className="waste" />
+              <MechCounter value={wastePct} intDigits={3} decimals={1} className="waste" />
               <span className="mech-decoration after">%</span>
             </div>
           </div>
