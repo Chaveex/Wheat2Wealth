@@ -327,8 +327,23 @@ input{
 .full-btn{width:100%; margin-top:6px;}
 .propaganda-btn{
   font-family:'Stalinist One','Courier New',monospace;
-  font-size:0.95rem; letter-spacing:0.03em; line-height:1.3; padding:12px 10px;
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  padding:18px 16px;
+  background:var(--alert);
+  color:#fff;
+  border:2px solid var(--gold);
+  box-shadow:inset 0 0 0 3px rgba(0,0,0,0.25);
+  position:relative;
 }
+.propaganda-btn-main{
+  font-size:0.92rem; letter-spacing:0.045em; line-height:1.5;
+}
+.propaganda-btn-price{
+  font-family:'Courier New',monospace; font-weight:700; font-size:0.8rem;
+  color:#fff; opacity:0.85; letter-spacing:0.05em;
+}
+.propaganda-btn.armed{border-color:#fff; background:#7c332a;}
+.propaganda-btn.armed .propaganda-btn-price{opacity:1;}
 
 .upgrade{margin:10px 0; padding-bottom:10px; border-bottom:1px dashed var(--paper-line);}
 .upgrade:last-child{border-bottom:none;}
@@ -379,6 +394,48 @@ input{
 .auth-card p{font-size:0.85rem; color:var(--ink-soft); margin:0 0 18px;}
 .auth-error{font-size:0.78rem; color:var(--alert); min-height:1.2em; margin-bottom:8px;}
 .auth-note{font-size:0.68rem; color:var(--ink-soft); margin-top:10px; line-height:1.4;}
+
+.rda-propaganda-popup{
+  position:fixed; bottom:20px; left:20px; width:320px; max-width:calc(100vw - 40px);
+  background-color:var(--paper);
+  border:4px solid var(--soil-dark);
+  box-shadow:4px 4px 0 rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.1);
+  padding:15px; z-index:1000;
+  font-family:'Courier New', monospace; color:var(--soil-dark);
+  transform:rotate(-1.2deg);
+  animation:sanctionSlideIn 0.3s cubic-bezier(0.175,0.885,0.32,1.275);
+}
+.propaganda-header{
+  background-color:var(--alert); color:#fff;
+  font-family:'Stalinist One','Courier New',monospace;
+  font-size:0.62rem; text-align:center; padding:5px; letter-spacing:0.05em;
+  margin-bottom:10px;
+}
+.propaganda-title{
+  font-family:'Stalinist One','Courier New',monospace;
+  font-size:0.8rem; color:var(--alert); text-align:center;
+  margin:0 0 10px; line-height:1.45; text-transform:uppercase;
+}
+.propaganda-text{
+  font-size:0.72rem; line-height:1.55; margin:0 0 14px; text-align:left;
+}
+.propaganda-text .highlight{
+  font-weight:700; background-color:rgba(168,72,60,0.2); padding:0 2px;
+}
+.stamp-blame{
+  display:block; width:fit-content; margin:0 auto 14px;
+  border:2px dashed var(--alert); color:var(--alert);
+  font-family:'Stalinist One','Courier New',monospace;
+  font-size:0.6rem; padding:5px 10px; letter-spacing:0.05em;
+  transform:rotate(-6deg); opacity:0.85;
+}
+@keyframes sanctionSlideIn{
+  from{transform:translateX(-120%) rotate(-1.2deg); opacity:0;}
+  to{transform:translateX(0) rotate(-1.2deg); opacity:1;}
+}
+@media (max-width:760px){
+  .rda-propaganda-popup{left:10px; bottom:10px; width:280px;}
+}
 
 @media (max-width:760px){
   .layout{flex-direction:column;}
