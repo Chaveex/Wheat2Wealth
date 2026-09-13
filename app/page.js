@@ -49,6 +49,42 @@ import {
   bagUpgradeCost,
 } from '@/lib/gameLogic';
 
+// --- Sanctions pour gaspillage excessif ("Comité du Plan") ---
+// state.wastePct est une moyenne cumulée depuis le début de la partie
+// (totalWheatLost / totalProduit), donc lente à bouger : on utilise une
+// hystérésis (armé au-delà de 30%, désarmé seulement sous 25%) plutôt qu'un
+// simple seuil, pour ne pas re-déclencher en boucle tant que le joueur reste
+// au-dessus de 30%.
+const WASTE_SANCTION_THRESHOLD = 30;
+const WASTE_SANCTION_RESET_THRESHOLD = 25;
+const WASTE_SANCTION_MIN_PRODUCED = 50; // évite un déclenchement injuste en tout début de partie
+const WASTE_SANCTION_TIERS = [
+  {
+    label: "Avertissement du Camarade Commissaire",
+    moneyPct: 0.08,
+    slowPct: 0.15,
+    slowMs: 20000,
+    freezeMs: 0,
+    stamp: 'AVERTISSEMENT',
+  },
+  {
+    label: 'Blâme pour Incompétence Grave',
+    moneyPct: 0.18,
+    slowPct: 0,
+    slowMs: 0,
+    freezeMs: 8000,
+    stamp: 'BLÂMÉ PAR L\u2019ÉTAT',
+  },
+  {
+    label: 'Accusation de Sabotage et Trahison de Classe',
+    moneyPct: 0.30,
+    slowPct: 0,
+    slowMs: 0,
+    freezeMs: 12000,
+    stamp: 'SABOTEUR DÉSIGNÉ',
+  },
+];
+
 export default function Home() {
   const [authChecked, setAuthChecked] = useState(false);
   const [username, setUsername] = useState(null); // null = logged out
@@ -181,6 +217,7 @@ function Game({ username, onLoggedOut }) {
   function toggleTechCollapsed(key, currentlyCollapsed) {
     setCollapsedTechs((prev) => ({ ...prev, [key]: !currentlyCollapsed }));
   }
+  const [sanctionPopup, setSanctionPopup] = useState(null); // { tier, label, stamp, wastePct, moneyLost }
   const [kbdPressed, setKbdPressed] = useState(false);
   const dirtyRef = useRef(false);
   const stateRef = useRef(null);
@@ -429,11 +466,88 @@ function Game({ username, onLoggedOut }) {
     const id = setInterval(() => {
       setState((prev) => {
         if (!prev || prev.gamePhase !== 'playing') return prev;
-        const gt = growTimeSeconds(prev) * 1000;
+
+        const now = Date.now();
+        const sanctions = prev.sanctions || { count: 0, armed: false, freezeUntil: 0, slowUntil: 0, slowPct: 0 };
+
+        // Gel total en cours : on saute complètement ce tick (aucune pousse,
+        // aucune auto-récolte/semis) jusqu'à la fin de l'inspection.
+        if (sanctions.freezeUntil > now) return prev;
+
+        const totalProducedNow = (prev.stats.totalWheatHarvested || 0) + (prev.stats.totalWheatLost || 0);
+        const wastePctNow = totalProducedNow > 0 ? (prev.stats.totalWheatLost / totalProducedNow) * 100 : 0;
+
+        let nextSanctions = sanctions;
+        let sanctionMoneyDelta = 0;
+        let sanctionToShow = null;
+        let confiscatedRow = null;
+
+        if (
+          !sanctions.armed &&
+          totalProducedNow >= WASTE_SANCTION_MIN_PRODUCED &&
+          wastePctNow >= WASTE_SANCTION_THRESHOLD
+        ) {
+          const tierIndex = Math.min(sanctions.count, WASTE_SANCTION_TIERS.length - 1);
+          const tier = WASTE_SANCTION_TIERS[tierIndex];
+          const moneyLost = Math.round(prev.money * tier.moneyPct);
+          sanctionMoneyDelta = -moneyLost;
+          nextSanctions = {
+            count: sanctions.count + 1,
+            armed: true,
+            freezeUntil: tier.freezeMs > 0 ? now + tier.freezeMs : 0,
+            slowUntil: tier.slowMs > 0 ? now + tier.slowMs : 0,
+            slowPct: tier.slowPct,
+          };
+
+          // Palier 3 (Sabotage) : une ligne du terrain est réquisitionnée par
+          // l'État. Les parcelles repassent en "locked" — le joueur devra les
+          // racheter une par une, exactement comme lors de l'agrandissement
+          // normal du terrain (même fonction buyPlot, même barème de prix).
+          if (tierIndex === 2) {
+            let fallbackRow = null;
+            for (let r = prev.farmRows - 1; r >= 0; r--) {
+              const rowIndices = getRowBlock(r * prev.farmCols, prev.farmCols);
+              const allUnlocked = rowIndices.every((idx) => prev.plots[idx] && prev.plots[idx].state !== 'locked');
+              if (allUnlocked) {
+                confiscatedRow = rowIndices;
+                break;
+              }
+              if (!fallbackRow && rowIndices.some((idx) => prev.plots[idx] && prev.plots[idx].state !== 'locked')) {
+                fallbackRow = rowIndices; // ligne partiellement déverrouillée, au cas où aucune ligne complète n'existe
+              }
+            }
+            if (!confiscatedRow) confiscatedRow = fallbackRow;
+          }
+
+          sanctionToShow = {
+            tier: tierIndex + 1,
+            label: tier.label,
+            stamp: tier.stamp,
+            wastePct: wastePctNow,
+            moneyLost,
+            frozen: tier.freezeMs > 0,
+            confiscatedRow: confiscatedRow ? confiscatedRow.length : 0,
+          };
+        } else if (sanctions.armed && wastePctNow <= WASTE_SANCTION_RESET_THRESHOLD) {
+          nextSanctions = { ...sanctions, armed: false };
+        } else if (sanctions.slowUntil && sanctions.slowUntil <= now) {
+          nextSanctions = { ...sanctions, slowUntil: 0, slowPct: 0 };
+        }
+
+        if (sanctionToShow) {
+          const rowNote = confiscatedRow ? ` Ligne de terrain réquisitionnée (${confiscatedRow.length} parcelles).` : '';
+          pushLog(`⚠ ${sanctionToShow.label} — -${sanctionToShow.moneyLost}p${rowNote}`);
+          markDirty();
+          setSanctionPopup(sanctionToShow);
+          playTelegraphSound();
+        }
+
+        const isSlowed = nextSanctions.slowUntil > now;
+        const gt = growTimeSeconds(prev) * 1000 * (isSlowed ? 1 / (1 - nextSanctions.slowPct) : 1);
         let plots = prev.plots;
         let wheat = prev.wheat;
         let money = prev.money;
-        let changed = false;
+        let changed = nextSanctions !== sanctions;
         let statHarvested = 0;
         let statLost = 0;
         let statSpent = 0;
@@ -441,6 +555,11 @@ function Game({ username, onLoggedOut }) {
         let statSold = 0;
         let statSales = 0;
         let newSale = null;
+
+        if (confiscatedRow) {
+          plots = plots.map((p, idx) => (confiscatedRow.includes(idx) ? { ...p, state: 'locked' } : p));
+          changed = true;
+        }
 
         const mapped = plots.map((p) => {
           if (p.state === 'growing' && Date.now() - p.plantedAt >= gt) {
@@ -560,6 +679,7 @@ function Game({ username, onLoggedOut }) {
         }
 
         if (!changed) return prev;
+        money = Math.max(0, money + sanctionMoneyDelta);
         const stats = { ...prev.stats };
         stats.totalWheatHarvested += statHarvested;
         stats.totalWheatLost += statLost;
@@ -568,7 +688,7 @@ function Game({ username, onLoggedOut }) {
         stats.totalWheatSold += statSold;
         stats.salesCount += statSales;
         if (newSale) stats.recentSales = [...stats.recentSales, newSale];
-        return { ...prev, plots, wheat, money, stats };
+        return { ...prev, plots, wheat, money, stats, sanctions: nextSanctions };
       });
     }, 300);
     return () => clearInterval(id);
@@ -627,6 +747,26 @@ function Game({ username, onLoggedOut }) {
     try {
       const audio = new Audio('/audio/sfx/semis.mp3');
       audio.volume = 0.55;
+      audio.play().catch(() => {});
+    } catch (e) {
+      // Lecture audio indisponible (autoplay bloqué, etc.) — on ignore silencieusement.
+    }
+  }
+
+  function playInvestSound() {
+    try {
+      const audio = new Audio('/audio/sfx/investir.mp3');
+      audio.volume = 0.55;
+      audio.play().catch(() => {});
+    } catch (e) {
+      // Lecture audio indisponible (autoplay bloqué, etc.) — on ignore silencieusement.
+    }
+  }
+
+  function playTelegraphSound() {
+    try {
+      const audio = new Audio('/audio/sfx/telegraph.mp3');
+      audio.volume = 0.6;
       audio.play().catch(() => {});
     } catch (e) {
       // Lecture audio indisponible (autoplay bloqué, etc.) — on ignore silencieusement.
@@ -703,10 +843,18 @@ function Game({ username, onLoggedOut }) {
     });
   }
 
+  function isProductionFrozen(s) {
+    return !!(s && s.sanctions && s.sanctions.freezeUntil > Date.now());
+  }
+
   function plant(i) {
+    if (isProductionFrozen(state)) {
+      pushLog('Parcelles bloquées : inspection du Comité du Plan en cours.');
+      return;
+    }
     if (state && state.money >= SEED_COST) playSowSound();
     setState((prev) => {
-      if (!prev) return prev;
+      if (!prev || isProductionFrozen(prev)) return prev;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
       const indices = useCombine ? getRowBlock(i, prev.farmCols) : [i];
       const plots = prev.plots.slice();
@@ -737,9 +885,13 @@ function Game({ username, onLoggedOut }) {
   }
 
   function harvest(i) {
+    if (isProductionFrozen(state)) {
+      pushLog('Parcelles bloquées : inspection du Comité du Plan en cours.');
+      return;
+    }
     playHarvestSound();
     setState((prev) => {
-      if (!prev) return prev;
+      if (!prev || isProductionFrozen(prev)) return prev;
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
       const indices = useCombine ? getRowBlock(i, prev.farmCols) : [i];
       const plots = prev.plots.slice();
@@ -838,6 +990,7 @@ function Game({ username, onLoggedOut }) {
       }
       pushLog(`Investissement : ${def.name} (niveau ${u.level + 1}).`);
       markDirty();
+      playInvestSound();
       return {
         ...prev,
         money: prev.money - cost,
@@ -1212,6 +1365,10 @@ function Game({ username, onLoggedOut }) {
           </div>
         ))}
 
+        {sanctionPopup && (
+          <SanctionPopup data={sanctionPopup} onClose={() => setSanctionPopup(null)} />
+        )}
+
         <div className="ledger panel-col-2">
           <Section title="Parcelles">
             <div className="row"><span>Prochaine parcelle</span><span>{nextPlotCost} p</span></div>
@@ -1297,11 +1454,11 @@ function Game({ username, onLoggedOut }) {
               className={`full-btn propaganda-btn ${sellFarmArmed ? 'armed' : ''}`}
               disabled={state.gamePhase !== 'playing'}
               onClick={handleSellFarm}
-              style={sellFarmArmed ? { background: 'var(--alert)', color: '#fff' } : undefined}
             >
-              {sellFarmArmed
-                ? `CONFIRMER LA LIQUIDATION ? (${computeResaleValue(state)}p)`
-                : `LIQUIDER ET CÉDER À L'ÉTAT (${computeResaleValue(state)}p)`}
+              <span className="propaganda-btn-main">
+                {sellFarmArmed ? 'CONFIRMER LA LIQUIDATION ?' : "LIQUIDER ET CÉDER À L'ÉTAT"}
+              </span>
+              <span className="propaganda-btn-price">{computeResaleValue(state)}p</span>
             </button>
           </Section>
           <hr />
@@ -1676,6 +1833,37 @@ function MechCounter({ value, intDigits, decimals = 0, className = '' }) {
           ))}
         </>
       )}
+    </div>
+  );
+}
+
+// Affiche de propagande RDA, déclenchée par une sanction pour gaspillage
+// excessif (voir la boucle de tick principale plus haut).
+function SanctionPopup({ data, onClose }) {
+  return (
+    <div className="rda-propaganda-popup">
+      <div className="propaganda-header">URGENT — COMITÉ DU PLAN</div>
+      <div className="propaganda-body">
+        <p className="propaganda-title">{data.label}</p>
+        <p className="propaganda-text">
+          Le taux de gaspillage a atteint <span className="highlight">{data.wastePct.toFixed(1)}%</span>.
+          {' '}
+          {data.frozen
+            ? "Les parcelles sont placées sous scellés le temps de l\u2019inspection."
+            : 'La cadence de production est ralentie le temps de l\u2019enquête.'}
+          {' '}
+          Amende immédiate : <strong>-{data.moneyLost}p</strong>.
+          {data.confiscatedRow > 0 && (
+            <>
+              {' '}
+              Une ligne de terrain ({data.confiscatedRow} parcelles) est <strong>réquisitionnée par
+              l&rsquo;État</strong> — rachète-la parcelle par parcelle pour la récupérer.
+            </>
+          )}
+        </p>
+        <div className="stamp-blame">{data.stamp}</div>
+      </div>
+      <button className="full-btn" onClick={onClose}>COMPRIS, CAMARADE</button>
     </div>
   );
 }
