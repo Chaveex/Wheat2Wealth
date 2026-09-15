@@ -45,13 +45,22 @@ export async function POST(req) {
     return NextResponse.json({ error: 'invalid_state' }, { status: 400 });
   }
 
+  // On ne lit que le champ `money` à l'intérieur du JSON `state` (via le
+  // sélecteur de chemin JSON de PostgREST), plutôt que tout le blob `state`
+  // — le reste n'a jamais été utilisé ici. Ça réduit le volume transféré
+  // Supabase -> fonction et le CPU de parsing à chaque sauvegarde.
+  // ⚠️ Si cette syntaxe `money:state->>money` ne fonctionne pas telle
+  // quelle sur ton instance (version de PostgREST), reviens à
+  // `.select('state, best_score, updated_at')` avec
+  // `existing?.state?.money` — c'était la version d'origine, correcte,
+  // juste plus lourde.
   const { data: existing } = await supabaseAdmin
     .from('saves')
-    .select('state, best_score, updated_at')
+    .select('money:state->>money, best_score, updated_at')
     .eq('account_id', session.accountId)
     .maybeSingle();
 
-  const previousMoney = typeof existing?.state?.money === 'number' ? existing.state.money : STARTING_MONEY;
+  const previousMoney = existing?.money != null ? Number(existing.money) : STARTING_MONEY;
   const previousBest = existing ? Number(existing.best_score) || 0 : 0;
   const elapsedSeconds = existing?.updated_at
     ? Math.max(MIN_ELAPSED_SECONDS, (Date.now() - new Date(existing.updated_at).getTime()) / 1000)

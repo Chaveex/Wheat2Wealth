@@ -5,8 +5,6 @@ import {
   FREE_PLOTS,
   DEFAULT_COLS,
   DEFAULT_ROWS,
-  SELL_PRICE,
-  SEED_COST,
   UPGRADE_DEFS,
   freshPlots,
   initialState,
@@ -47,6 +45,19 @@ import {
   bagSize,
   bagRequiredGen,
   bagUpgradeCost,
+  CROPS,
+  CROP_KEYS,
+  SEASONS,
+  SEASON_LABELS,
+  SEASON_LENGTH_DAYS,
+  currentSeason,
+  seasonProgress,
+  isInSeason,
+  totalStock,
+  cropSellPrice,
+  cropYieldSeasonMult,
+  stockValue,
+  OFF_SEASON_GROWTH_PENALTY,
 } from '@/lib/gameLogic';
 
 // --- Sanctions pour gaspillage excessif ("Comité du Plan") ---
@@ -203,7 +214,7 @@ function errorMessage(code) {
 }
 
 function Game({ username, onLoggedOut }) {
-  const [state, setState] = useState(null); // { money, wheat, plots, upgrades }
+  const [state, setState] = useState(null); // { money, stocks, plots, upgrades }
   const [bestScore, setBestScore] = useState(0);
   const [leaderboard, setLeaderboard] = useState([]);
   const [log, setLog] = useState([]);
@@ -287,6 +298,8 @@ function Game({ username, onLoggedOut }) {
 
   useEffect(() => {
     refreshLeaderboard();
+    const id = setInterval(refreshLeaderboard, 30000);
+    return () => clearInterval(id);
   }, [refreshLeaderboard]);
 
   // Purely visual re-render trigger: playtime, the live p/s indicator, and
@@ -312,7 +325,7 @@ function Game({ username, onLoggedOut }) {
       if (!s || s.gamePhase !== 'playing') return;
       if (!s.upgrades.sellShortcut || s.upgrades.sellShortcut.level <= 0) return;
       if (!s.settings?.sellShortcutEnabled) return;
-      if (s.wheat <= 0) return;
+      if (totalStock(s) <= 0) return;
       e.preventDefault();
       sell();
       setKbdPressed(true);
@@ -543,9 +556,9 @@ function Game({ username, onLoggedOut }) {
         }
 
         const isSlowed = nextSanctions.slowUntil > now;
-        const gt = growTimeSeconds(prev) * 1000 * (isSlowed ? 1 / (1 - nextSanctions.slowPct) : 1);
+        const sanctionSlowFactor = isSlowed ? 1 / (1 - nextSanctions.slowPct) : 1;
         let plots = prev.plots;
-        let wheat = prev.wheat;
+        let stocks = prev.stocks;
         let money = prev.money;
         let changed = nextSanctions !== sanctions;
         let statHarvested = 0;
@@ -562,7 +575,7 @@ function Game({ username, onLoggedOut }) {
         }
 
         const mapped = plots.map((p) => {
-          if (p.state === 'growing' && Date.now() - p.plantedAt >= gt) {
+          if (p.state === 'growing' && Date.now() - p.plantedAt >= growTimeSeconds(prev, p.crop) * 1000 * sanctionSlowFactor) {
             changed = true;
             return { ...p, state: 'ready' };
           }
@@ -592,19 +605,20 @@ function Game({ username, onLoggedOut }) {
               for (let b = 0; b < bagCount; b++) {
                 const idx = findNextIndex(plots, cursor, (p) => p.state === 'ready');
                 if (idx === -1) break;
-                const amount = yieldAmount(prev);
+                const cropKey = plots[idx].crop || 'ble';
+                const amount = yieldAmount(prev, cropKey);
                 const cap = siloEffectiveCap(prev);
-                const space = cap - wheat;
+                const space = cap - totalStock({ stocks });
                 const added = Math.min(amount, Math.max(0, space));
                 if (plots === prev.plots) plots = plots.slice();
                 plots[idx] = { state: 'empty', plantedAt: null };
-                wheat += added;
+                stocks = { ...stocks, [cropKey]: (stocks[cropKey] || 0) + added };
                 statHarvested += added;
                 statLost += amount - added;
                 cursor = idx;
                 changed = true;
                 queueFlash(idx, 'worker');
-                if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
+                if (added > 0) queueGain(idx, `+${added} ${CROPS[cropKey].emoji}`, 'gain-wheat');
               }
               harvestCursorsRef.current[w] = cursor;
               lastHarvestsRef.current[w] = Date.now();
@@ -625,20 +639,23 @@ function Game({ username, onLoggedOut }) {
             if (!lastSowsRef.current[w]) lastSowsRef.current[w] = Date.now();
             if (Date.now() - lastSowsRef.current[w] >= sInterval * 1000) {
               const bagCount = bagSize(prev, 'sacSemeur');
+              const seedCost = CROPS[prev.selectedCrop].seedCost;
               let cursor = sowCursorsRef.current[w];
               for (let b = 0; b < bagCount; b++) {
-                if (money < SEED_COST) break;
+                if (money < seedCost) {
+                  break;
+                }
                 const idx = findNextIndex(plots, cursor, (p) => p.state === 'empty');
                 if (idx === -1) break;
                 if (plots === prev.plots) plots = plots.slice();
-                plots[idx] = { state: 'growing', plantedAt: Date.now() };
-                money -= SEED_COST;
-                statSpent += SEED_COST;
+                plots[idx] = { state: 'growing', plantedAt: Date.now(), crop: prev.selectedCrop };
+                money -= seedCost;
+                statSpent += seedCost;
                 cursor = idx;
                 changed = true;
                 dirtyRef.current = true;
                 queueFlash(idx, 'sower');
-                queueGain(idx, '🌱', 'gain-sow');
+                queueGain(idx, CROPS[prev.selectedCrop].emoji, 'gain-sow');
               }
               sowCursorsRef.current[w] = cursor;
               lastSowsRef.current[w] = Date.now();
@@ -648,18 +665,19 @@ function Game({ username, onLoggedOut }) {
 
         if (courtierActiveRef.current && prev.upgrades.courtier.level > 0) {
           const cap = siloCap(prev);
-          if (cap > 0 && wheat >= cap * COURTIER_THRESHOLD) {
-            const bonus = prev.generation >= FILL_BONUS_MIN_GEN ? fillBonusPct(wheat / cap) : 0;
-            const gross = Math.round(wheat * SELL_PRICE * (1 + bonus));
+          const stockAmount = totalStock({ stocks });
+          if (cap > 0 && stockAmount >= cap * COURTIER_THRESHOLD) {
+            const bonus = prev.generation >= FILL_BONUS_MIN_GEN ? fillBonusPct(stockAmount / cap) : 0;
+            const gross = Math.round(stockValue({ stocks }) * (1 + bonus));
             const tax = courtierTax(prev);
             const total = Math.round(gross * (1 - tax));
-            pushLog(`Vente automatique (courtier) de ${wheat} unités de blé pour ${total}p (bonus +${Math.round(bonus * 100)}%, taxe ${Math.round(tax * 100)}%).`);
+            pushLog(`Vente automatique (courtier) de ${stockAmount} unités pour ${total}p (bonus +${Math.round(bonus * 100)}%, taxe ${Math.round(tax * 100)}%).`);
             statEarned += total;
-            statSold += wheat;
+            statSold += stockAmount;
             statSales += 1;
             newSale = { t: Date.now(), amount: total };
             money += total;
-            wheat = 0;
+            stocks = { ble: 0, orge: 0, pdt: 0, seigle: 0 };
             changed = true;
             dirtyRef.current = true;
             queueSound('courtierSold');
@@ -669,10 +687,11 @@ function Game({ username, onLoggedOut }) {
 
         if (prev.generation >= FILL_BONUS_MIN_GEN) {
           const nominalCap = siloCap(prev);
-          if (wheat > nominalCap && !wasOverflowingRef.current) {
+          const stockAmount = totalStock({ stocks });
+          if (stockAmount > nominalCap && !wasOverflowingRef.current) {
             wasOverflowingRef.current = true;
             queueSound('overflowWarning');
-          } else if (wheat <= nominalCap && wasOverflowingRef.current) {
+          } else if (stockAmount <= nominalCap && wasOverflowingRef.current) {
             wasOverflowingRef.current = false;
             queueStopSound('overflowWarning');
           }
@@ -687,8 +706,8 @@ function Game({ username, onLoggedOut }) {
         stats.totalEarned += statEarned;
         stats.totalWheatSold += statSold;
         stats.salesCount += statSales;
-        if (newSale) stats.recentSales = [...stats.recentSales, newSale];
-        return { ...prev, plots, wheat, money, stats, sanctions: nextSanctions };
+        if (newSale) stats.recentSales = [...stats.recentSales, newSale].filter((e) => Date.now() - e.t <= 60000);
+        return { ...prev, plots, stocks, money, stats, sanctions: nextSanctions };
       });
     }, 300);
     return () => clearInterval(id);
@@ -717,15 +736,14 @@ function Game({ username, onLoggedOut }) {
             return;
           }
           setSaveError(null);
-          refreshLeaderboard();
         } catch {
           dirtyRef.current = true;
           setSaveError('Impossible de joindre le serveur pour sauvegarder. Nouvelle tentative dans quelques secondes — ne ferme pas cette page.');
         }
       }
-    }, 2000);
+    }, 4000);
     return () => clearInterval(id);
-  }, [refreshLeaderboard]);
+  }, []);
 
   function markDirty() {
     dirtyRef.current = true;
@@ -852,9 +870,11 @@ function Game({ username, onLoggedOut }) {
       pushLog('Parcelles bloquées : inspection du Comité du Plan en cours.');
       return;
     }
-    if (state && state.money >= SEED_COST) playSowSound();
+    if (state && state.money >= CROPS[state.selectedCrop].seedCost) playSowSound();
     setState((prev) => {
       if (!prev || isProductionFrozen(prev)) return prev;
+      const cropKey = prev.selectedCrop;
+      const seedCost = CROPS[cropKey].seedCost;
       const useCombine = sowMode === 'combine' && prev.upgrades.semoirMeca.level > 0;
       const indices = useCombine ? getRowBlock(i, prev.farmCols) : [i];
       const plots = prev.plots.slice();
@@ -863,20 +883,20 @@ function Game({ username, onLoggedOut }) {
       let attempted = false;
       indices.forEach((idx) => {
         if (plots[idx].state !== 'empty') return;
-        if (money < SEED_COST) return;
+        if (money < seedCost) return;
         attempted = true;
-        money -= SEED_COST;
-        spent += SEED_COST;
+        money -= seedCost;
+        spent += seedCost;
         if (useCombine && Math.random() < semoirMecaFailChance(prev)) {
           pushLog("Semis raté : la graine n'a pas pris (semoir mécanique).");
           queueGain(idx, '✕', 'gain-fail');
         } else {
-          plots[idx] = { state: 'growing', plantedAt: Date.now() };
-          queueGain(idx, '🌱', 'gain-sow');
+          plots[idx] = { state: 'growing', plantedAt: Date.now(), crop: cropKey };
+          queueGain(idx, CROPS[cropKey].emoji, 'gain-sow');
         }
       });
       if (!attempted) {
-        pushLog(`Pas assez de trésorerie pour semer (${SEED_COST}p).`);
+        pushLog(`Pas assez de trésorerie pour semer (${seedCost}p).`);
         return prev;
       }
       markDirty();
@@ -895,32 +915,33 @@ function Game({ username, onLoggedOut }) {
       const useCombine = harvestMode === 'combine' && prev.upgrades.moissonneuse.level > 0;
       const indices = useCombine ? getRowBlock(i, prev.farmCols) : [i];
       const plots = prev.plots.slice();
-      let wheat = prev.wheat;
+      let stocks = { ...prev.stocks };
       let harvested = 0;
       let lost = 0;
       let touched = false;
       indices.forEach((idx) => {
         if (plots[idx].state !== 'ready') return;
         touched = true;
-        let amount = yieldAmount(prev);
+        const cropKey = plots[idx].crop || 'ble';
+        let amount = yieldAmount(prev, cropKey);
         if (useCombine) amount = Math.max(0, Math.round(amount * (1 - moissonneusePenalty(prev))));
         const cap = siloEffectiveCap(prev);
-        const space = cap - wheat;
+        const space = cap - totalStock({ stocks });
         const added = Math.min(amount, Math.max(0, space));
         if (added < amount) {
-          pushLog(`Silo plein ! ${amount - added} unités de blé perdues.`);
+          pushLog(`Silo plein ! ${amount - added} unités perdues.`);
           lost += amount - added;
         }
-        wheat += added;
+        stocks[cropKey] = (stocks[cropKey] || 0) + added;
         harvested += added;
         plots[idx] = { state: 'empty', plantedAt: null };
-        if (added > 0) queueGain(idx, `+${added} 🌾`, 'gain-wheat');
+        if (added > 0) queueGain(idx, `+${added} ${CROPS[cropKey].emoji}`, 'gain-wheat');
       });
       if (!touched) return prev;
       markDirty();
       return {
         ...prev,
-        wheat,
+        stocks,
         plots,
         stats: {
           ...prev.stats,
@@ -933,10 +954,11 @@ function Game({ username, onLoggedOut }) {
 
   function sell() {
     setState((prev) => {
-      if (!prev || prev.wheat <= 0) return prev;
+      if (!prev || totalStock(prev) <= 0) return prev;
+      const amount = totalStock(prev);
       const bonus = currentFillBonus(prev);
-      const total = Math.round(prev.wheat * SELL_PRICE * (1 + bonus));
-      pushLog(`Vente de ${prev.wheat} unités de blé pour ${total}p${bonus > 0 ? ` (bonus de remplissage +${Math.round(bonus * 100)}%)` : ''}.`);
+      const total = Math.round(stockValue(prev) * (1 + bonus));
+      pushLog(`Vente de ${amount} unités pour ${total}p${bonus > 0 ? ` (bonus de remplissage +${Math.round(bonus * 100)}%)` : ''}.`);
       markDirty();
       wasOverflowingRef.current = false;
       queueSound('manualSold');
@@ -945,13 +967,13 @@ function Game({ username, onLoggedOut }) {
       return {
         ...prev,
         money: prev.money + total,
-        wheat: 0,
+        stocks: { ble: 0, orge: 0, pdt: 0, seigle: 0 },
         stats: {
           ...prev.stats,
           totalEarned: prev.stats.totalEarned + total,
-          totalWheatSold: prev.stats.totalWheatSold + prev.wheat,
+          totalWheatSold: prev.stats.totalWheatSold + amount,
           salesCount: prev.stats.salesCount + 1,
-          recentSales: [...prev.stats.recentSales, { t: Date.now(), amount: total }],
+          recentSales: [...prev.stats.recentSales, { t: Date.now(), amount: total }].filter((e) => Date.now() - e.t <= 60000),
         },
       };
     });
@@ -1056,6 +1078,14 @@ function Game({ username, onLoggedOut }) {
     });
   }
 
+  function setSelectedCrop(cropKey) {
+    setState((prev) => {
+      if (!prev || prev.selectedCrop === cropKey) return prev;
+      markDirty();
+      return { ...prev, selectedCrop: cropKey };
+    });
+  }
+
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     onLoggedOut();
@@ -1102,7 +1132,7 @@ function Game({ username, onLoggedOut }) {
       return {
         ...prev,
         money: prev.money + value,
-        wheat: 0,
+        stocks: { ble: 0, orge: 0, pdt: 0, seigle: 0 },
         plotsInvested: 0,
         upgrades,
         generation: prev.generation + 1,
@@ -1184,8 +1214,14 @@ function Game({ username, onLoggedOut }) {
   const totalProduced = state.stats.totalWheatHarvested + state.stats.totalWheatLost;
   const wastePct = totalProduced > 0 ? (state.stats.totalWheatLost / totalProduced) * 100 : 0;
   const sellFillBonus = currentFillBonus(state);
+  const season = currentSeason();
+  const seasonProg = seasonProgress();
+  const msLeftInSeason = (1 - seasonProg) * SEASON_LENGTH_DAYS * 86400000;
+  const seasonDaysLeft = Math.floor(msLeftInSeason / 86400000);
+  const seasonHoursLeft = Math.floor((msLeftInSeason % 86400000) / 3600000);
   const cellPx = fieldCellSize(state);
   const costPerUnit = state.stats.totalWheatHarvested > 0 ? state.stats.totalSpent / state.stats.totalWheatHarvested : 0;
+  const avgCropPrice = CROP_KEYS.reduce((s, k) => s + cropSellPrice(k, season), 0) / CROP_KEYS.length;
   const netProfit = state.stats.totalEarned - state.stats.totalSpent;
   const idealCadence = owned > 0 ? growTimeSeconds(state) / owned : growTimeSeconds(state);
   const sowerInterval = semeurInterval(state);
@@ -1283,6 +1319,34 @@ function Game({ username, onLoggedOut }) {
           <FarmChoiceScreen state={state} onChoose={chooseFarm} onChooseBase={chooseBaseFarm} />
         ) : (
           <div className="field-wrap">
+            <div className={`season-banner season-${season}`}>
+              <span className="season-name">{SEASON_LABELS[season]}</span>
+              <div className="season-track">
+                <div className="season-fill" style={{ width: `${seasonProg * 100}%` }} />
+              </div>
+              <span className="season-countdown">{seasonDaysLeft}j {seasonHoursLeft}h avant la saison suivante</span>
+            </div>
+            <div className="crop-selector">
+              {CROP_KEYS.map((key) => {
+                const crop = CROPS[key];
+                const inSeason = isInSeason(key, season);
+                const yieldPct = Math.round(cropYieldSeasonMult(key, season) * 100);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`crop-btn ${state.selectedCrop === key ? 'active' : ''} ${inSeason ? 'in-season' : 'off-season'}`}
+                    onClick={() => setSelectedCrop(key)}
+                    title={inSeason ? `${crop.name} — de saison, 100% de rendement` : `${crop.name} — hors-saison : ${yieldPct}% de rendement, pousse ×${OFF_SEASON_GROWTH_PENALTY} plus lente, prix divisé par 2`}
+                  >
+                    <span className="crop-emoji">{crop.emoji}</span>
+                    <span className="crop-name">{crop.name}</span>
+                    <span className="crop-cost">{crop.seedCost}p</span>
+                    <span className={`crop-badge ${inSeason ? 'in' : 'out'}`}>{yieldPct}% rendement</span>
+                  </button>
+                );
+              })}
+            </div>
             <div className="field-caption">
               Clique une parcelle libre pour l&rsquo;acheter, une parcelle semée pour la récolter.
             </div>
@@ -1332,7 +1396,9 @@ function Game({ username, onLoggedOut }) {
             >
               {state.plots.map((p, i) => (
                 <Plot key={i} plot={p} cost={nextPlotCost} money={state.money}
-                  growTime={growTimeSeconds(state)}
+                  growTime={growTimeSeconds(state, p.crop || state.selectedCrop)}
+                  seedCost={CROPS[state.selectedCrop].seedCost}
+                  seedEmoji={CROPS[state.selectedCrop].emoji}
                   preview={previewBlock.includes(i)}
                   flash={flashes.find((f) => f.idx === i)?.type}
                   onMouseEnter={() => dragOverPlot(i, p.state)}
@@ -1372,13 +1438,32 @@ function Game({ username, onLoggedOut }) {
         <div className="ledger panel-col-2">
           <Section title="Parcelles">
             <div className="row"><span>Prochaine parcelle</span><span>{nextPlotCost} p</span></div>
-            <div className="row"><span>Semer une parcelle libre</span><span>{SEED_COST} p</span></div>
-            <div className="row muted"><span>Temps de pousse</span><span>{growTimeSeconds(state).toFixed(1)} s</span></div>
+            <div className="row">
+              <span>Semer une parcelle libre ({CROPS[state.selectedCrop].name})</span>
+              <span>{CROPS[state.selectedCrop].seedCost} p</span>
+            </div>
+            <div className="row muted">
+              <span>Temps de pousse</span>
+              <span>
+                {growTimeSeconds(state, state.selectedCrop).toFixed(1)} s
+                {!isInSeason(state.selectedCrop, season) && ' (hors-saison)'}
+              </span>
+            </div>
           </Section>
           <hr />
           <Section title="Silo">
-            <SiloBar wheat={state.wheat} cap={siloCap(state)} bufferCap={siloEffectiveCap(state)} showBuffer={state.generation >= FILL_BONUS_MIN_GEN} />
-            <div className="row"><span>Prix de vente (fixe)</span><span>{SELL_PRICE.toFixed(1)} p</span></div>
+            <SiloBar wheat={totalStock(state)} cap={siloCap(state)} bufferCap={siloEffectiveCap(state)} showBuffer={state.generation >= FILL_BONUS_MIN_GEN} />
+            <div className="stat-grid stats-wide" style={{ marginBottom: 8 }}>
+              {CROP_KEYS.map((key) => (
+                <div className="stat-card" key={key}>
+                  <div className="stat-label">{CROPS[key].emoji} {CROPS[key].name}</div>
+                  <div className="stat-value">{state.stocks[key] || 0}</div>
+                  <div className="muted" style={{ fontSize: '0.7rem' }}>
+                    {cropSellPrice(key, season).toFixed(1)} p/u{!isInSeason(key, season) ? ' (hors-saison)' : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
             {state.generation >= FILL_BONUS_MIN_GEN && (
               <div className="row">
                 <span>Bonus de remplissage actuel</span>
@@ -1387,12 +1472,12 @@ function Game({ username, onLoggedOut }) {
             )}
             <button
               ref={sellBtnRef}
-              className={`full-btn sell-btn ${state.wheat > 0 ? 'ready' : ''} ${kbdPressed ? 'kbd-press' : ''}`}
-              disabled={state.wheat <= 0}
+              className={`full-btn sell-btn ${totalStock(state) > 0 ? 'ready' : ''} ${kbdPressed ? 'kbd-press' : ''}`}
+              disabled={totalStock(state) <= 0}
               onClick={sell}
-              style={{ backgroundImage: `url(${state.wheat > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})` }}
+              style={{ backgroundImage: `url(${totalStock(state) > 0 ? '/sprites/sell-on.webp' : '/sprites/sell-off.webp'})` }}
             >
-              VENTE À LA CRIÉE {Math.round(state.wheat * SELL_PRICE * (1 + sellFillBonus))}p
+              VENTE À LA CRIÉE {Math.round(stockValue(state) * (1 + sellFillBonus))}p
             </button>
             {state.upgrades.courtier.level > 0 && (
               <div className="row" style={{ marginTop: 10, alignItems: 'center' }}>
@@ -1666,10 +1751,10 @@ function Game({ username, onLoggedOut }) {
                 <div className="stat-value">{state.stats.totalWheatHarvested > 0 ? `${costPerUnit.toFixed(2)} p/unité` : '—'}</div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">Marge nette / unité</div>
-                <div className={`stat-value ${state.stats.totalWheatHarvested > 0 ? (SELL_PRICE - costPerUnit >= 0 ? 'ok' : 'slow') : ''}`}>
+                <div className="stat-label">Marge nette / unité (vs prix moyen actuel)</div>
+                <div className={`stat-value ${state.stats.totalWheatHarvested > 0 ? (avgCropPrice - costPerUnit >= 0 ? 'ok' : 'slow') : ''}`}>
                   {state.stats.totalWheatHarvested > 0
-                    ? `${SELL_PRICE - costPerUnit >= 0 ? '+' : ''}${(SELL_PRICE - costPerUnit).toFixed(2)} p/unité`
+                    ? `${avgCropPrice - costPerUnit >= 0 ? '+' : ''}${(avgCropPrice - costPerUnit).toFixed(2)} p/unité`
                     : '—'}
                 </div>
               </div>
@@ -1726,7 +1811,7 @@ function LockIcon() {
   );
 }
 
-function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnter, onMouseDown }) {
+function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, preview, flash, onClick, onMouseEnter, onMouseDown }) {
   const flashClass = flash === 'worker' ? 'worker-flash' : flash === 'sower' ? 'sower-flash' : '';
   const previewClass = preview ? 'harvest-preview' : '';
   if (plot.state === 'locked') {
@@ -1750,26 +1835,38 @@ function Plot({ plot, cost, money, growTime, preview, flash, onClick, onMouseEnt
         onClick={onClick}
         onMouseEnter={onMouseEnter}
       >
-        <span className="plot-price">{SEED_COST}p</span>
+        <span className="plot-price">{seedEmoji} {seedCost}p</span>
       </div>
     );
   }
+  const cropEmoji = plot.crop ? CROPS[plot.crop]?.emoji : null;
+  // Cultures avec un visuel dédié pour le stade de pousse avancé et la
+  // récolte prête. Le tout jeune semis (progress < 50%) reste le sprite
+  // générique pour toutes les cultures — une jeune pousse se ressemble
+  // quelle que soit l'espèce. Les cultures absentes de cette liste
+  // retombent entièrement sur les sprites blé génériques en attendant
+  // leurs propres visuels.
+  const dedicatedSprite = plot.crop === 'pdt' || plot.crop === 'seigle' ? plot.crop : null;
   if (plot.state === 'growing') {
     const progress = Math.min(1, (Date.now() - plot.plantedAt) / (growTime * 1000));
-    const sprite = progress < 0.5 ? 'field-sown' : 'field-growing';
+    const sprite = progress < 0.5 ? 'field-sown' : (dedicatedSprite ? `${dedicatedSprite}-growing` : 'field-growing');
     return (
       <div className={`plot growing ${flashClass}`} style={{ backgroundImage: `url(/sprites/${sprite}.webp)` }} onMouseEnter={onMouseEnter}>
+        {cropEmoji && <span className="plot-crop-badge">{cropEmoji}</span>}
         <span className="plot-bar"><span className="plot-bar-fill" style={{ width: `${progress * 100}%` }} /></span>
       </div>
     );
   }
+  const readySprite = dedicatedSprite ? `${dedicatedSprite}-ready` : 'field-ready';
   return (
     <div
       className={`plot ready ${previewClass} ${flashClass}`}
-      style={{ backgroundImage: 'url(/sprites/field-ready.webp)' }}
+      style={{ backgroundImage: `url(/sprites/${readySprite}.webp)` }}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
-    />
+    >
+      {cropEmoji && <span className="plot-crop-badge">{cropEmoji}</span>}
+    </div>
   );
 }
 
@@ -1960,7 +2057,7 @@ function SiloBar({ wheat, cap, bufferCap, showBuffer }) {
   const markerPct = showBuffer && trackMax > 0 ? (cap / trackMax) * 100 : 100;
   return (
     <div className="silo-bar-wrap">
-      <div className="silo-bar-label">Blé stocké</div>
+      <div className="silo-bar-label">Récoltes stockées</div>
       <div className="silo-bar-track">
         <div className="silo-bar-fill" style={{ width: `${greenWidth}%` }} />
         {overflowWidth > 0 && (
