@@ -1696,7 +1696,7 @@ function Game({ username, onLoggedOut }) {
         </div>
 
         <div className="ledger panel-col-4">
-          <Section title="Statistiques" defaultCollapsed>
+          <Section title="Statistiques">
             <p className="field-caption" style={{ color: 'var(--ink-soft)' }}>
               Les chiffres bruts pour optimiser ta stratégie — tout ce qui compte pour battre les
               autres joueurs à temps de jeu égal.
@@ -1761,7 +1761,7 @@ function Game({ username, onLoggedOut }) {
             </div>
           </Section>
           <hr />
-          <Section title="Classement des Stakhanovistes du District" defaultCollapsed className="classement-section">
+          <Section title="Classement des Stakhanovistes du District" className="classement-section">
             <ul className="leaderboard">
               {leaderboard.length === 0 && <li className="muted">Aucun score enregistré pour l&rsquo;instant.</li>}
               {leaderboard.map((entry, idx) => (
@@ -1846,7 +1846,7 @@ function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, preview, flash
   // quelle que soit l'espèce. Les cultures absentes de cette liste
   // retombent entièrement sur les sprites blé génériques en attendant
   // leurs propres visuels.
-  const dedicatedSprite = plot.crop === 'pdt' || plot.crop === 'seigle' ? plot.crop : null;
+  const dedicatedSprite = ['pdt', 'seigle', 'orge'].includes(plot.crop) ? plot.crop : null;
   if (plot.state === 'growing') {
     const progress = Math.min(1, (Date.now() - plot.plantedAt) / (growTime * 1000));
     const sprite = progress < 0.5 ? 'field-sown' : (dedicatedSprite ? `${dedicatedSprite}-growing` : 'field-growing');
