@@ -327,23 +327,48 @@ input{
 .full-btn{width:100%; margin-top:6px;}
 .propaganda-btn{
   font-family:'Stalinist One','Courier New',monospace;
-  display:flex; flex-direction:column; align-items:center; gap:8px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0;
   padding:18px 16px;
-  background:var(--alert);
-  color:#fff;
-  border:2px solid var(--gold);
-  box-shadow:inset 0 0 0 3px rgba(0,0,0,0.25);
+  min-height:96px;
+  background-image:url('/sprites/liquidate-on.webp');
+  background-size:100% 100%;
+  background-repeat:no-repeat;
+  background-color:transparent;
+  color:var(--paper);
+  border:none;
   position:relative;
 }
+.propaganda-btn:hover:not(:disabled){
+  color:var(--paper);
+  background-image:url('/sprites/liquidate-on.webp');
+  background-size:100% 100%; background-repeat:no-repeat; background-position:center;
+  filter:brightness(1.1);
+}
+.propaganda-btn:active:not(:disabled){
+  color:var(--paper);
+  background-image:url('/sprites/liquidate-on.webp');
+  background-size:100% 100%; background-repeat:no-repeat; background-position:center;
+  transform:scale(0.96);
+  filter:brightness(1.2);
+}
 .propaganda-btn-main{
-  font-size:0.92rem; letter-spacing:0.045em; line-height:1.5;
+  font-size:0.92rem; letter-spacing:0.045em; line-height:1.5; margin-bottom:10px;
 }
 .propaganda-btn-price{
   font-family:'Courier New',monospace; font-weight:700; font-size:0.8rem;
-  color:#fff; opacity:0.85; letter-spacing:0.05em;
+  color:var(--paper); opacity:0.85; letter-spacing:0.08em;
+  padding-top:8px; border-top:1px solid rgba(214,205,188,0.4); width:100%; text-align:center;
 }
-.propaganda-btn.armed{border-color:#fff; background:#7c332a;}
-.propaganda-btn.armed .propaganda-btn-price{opacity:1;}
+.propaganda-btn.armed{
+  filter:brightness(0.65) saturate(1.3);
+}
+.propaganda-btn.armed:hover:not(:disabled){
+  color:var(--paper);
+  background-image:url('/sprites/liquidate-on.webp');
+  background-size:100% 100%; background-repeat:no-repeat; background-position:center;
+  filter:brightness(0.72) saturate(1.3);
+}
+.propaganda-btn.armed .propaganda-btn-price{border-top-color:rgba(214,205,188,0.7); opacity:1;}
 
 .upgrade{margin:10px 0; padding-bottom:10px; border-bottom:1px dashed var(--paper-line);}
 .upgrade:last-child{border-bottom:none;}
@@ -382,6 +407,8 @@ input{
 
 .auth-wrap{
   min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+  background-image:linear-gradient(rgba(10,9,8,0.72), rgba(10,9,8,0.72)), url('/sprites/orchestra-bg.jpg');
+  background-size:cover; background-position:center;
 }
 .auth-card{
   background:var(--paper); color:var(--ink); padding:32px 30px; border-radius:6px;
