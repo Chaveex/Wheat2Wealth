@@ -719,6 +719,10 @@ function Game({ username, onLoggedOut }) {
   // Autosave loop.
   useEffect(() => {
     const id = setInterval(async () => {
+      // L'onglet masqué est déjà couvert par la sauvegarde de secours
+      // (sendBeacon sur visibilitychange, plus bas) — inutile de payer un
+      // aller-retour réseau supplémentaire pendant qu'il est caché.
+      if (document.visibilityState === 'hidden') return;
       if (dirtyRef.current && stateRef.current) {
         dirtyRef.current = false;
         const money = Math.round(stateRef.current.money);
@@ -741,7 +745,7 @@ function Game({ username, onLoggedOut }) {
           setSaveError('Impossible de joindre le serveur pour sauvegarder. Nouvelle tentative dans quelques secondes — ne ferme pas cette page.');
         }
       }
-    }, 4000);
+    }, 30000);
     return () => clearInterval(id);
   }, []);
 
@@ -1245,19 +1249,19 @@ function Game({ username, onLoggedOut }) {
       <audio
         ref={courtierAudioRef}
         src="/soundEffect/courtierSold.mp3"
-        preload="auto"
+        preload="none"
         onError={() => console.error("Le fichier /soundEffect/courtierSold.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
       />
       <audio
         ref={manualAudioRef}
         src="/soundEffect/manualSold.mp3"
-        preload="auto"
+        preload="none"
         onError={() => console.error("Le fichier /soundEffect/manualSold.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
       />
       <audio
         ref={overflowAudioRef}
         src="/soundEffect/Heavy_soviet_warning_reverb.mp3"
-        preload="auto"
+        preload="none"
         onError={() => console.error("Le fichier /soundEffect/Heavy_soviet_warning_reverb.mp3 est introuvable ou invalide (vérifie le chemin et le nom exact dans public/).")}
       />
       <div className="topbar">
@@ -1399,6 +1403,7 @@ function Game({ username, onLoggedOut }) {
                   growTime={growTimeSeconds(state, p.crop || state.selectedCrop)}
                   seedCost={CROPS[state.selectedCrop].seedCost}
                   seedEmoji={CROPS[state.selectedCrop].emoji}
+                  cellPx={cellPx}
                   preview={previewBlock.includes(i)}
                   flash={flashes.find((f) => f.idx === i)?.type}
                   onMouseEnter={() => dragOverPlot(i, p.state)}
@@ -1811,9 +1816,13 @@ function LockIcon() {
   );
 }
 
-function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, preview, flash, onClick, onMouseEnter, onMouseDown }) {
+function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, cellPx, preview, flash, onClick, onMouseEnter, onMouseDown }) {
   const flashClass = flash === 'worker' ? 'worker-flash' : flash === 'sower' ? 'sower-flash' : '';
   const previewClass = preview ? 'harvest-preview' : '';
+  // Sur les grands terrains, les cases deviennent trop petites pour qu'un
+  // emoji reste un détail discret — il finirait par manger toute la case.
+  // Au-delà d'un certain rétrécissement, on l'omet et on garde juste le prix.
+  const showCropIcon = !cellPx || cellPx >= 40;
   if (plot.state === 'locked') {
     const affordable = money >= cost;
     return (
@@ -1835,7 +1844,7 @@ function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, preview, flash
         onClick={onClick}
         onMouseEnter={onMouseEnter}
       >
-        <span className="plot-price">{seedEmoji} {seedCost}p</span>
+        <span className="plot-price">{showCropIcon ? `${seedEmoji} ` : ''}{seedCost}p</span>
       </div>
     );
   }
@@ -1852,7 +1861,7 @@ function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, preview, flash
     const sprite = progress < 0.5 ? 'field-sown' : (dedicatedSprite ? `${dedicatedSprite}-growing` : 'field-growing');
     return (
       <div className={`plot growing ${flashClass}`} style={{ backgroundImage: `url(/sprites/${sprite}.webp)` }} onMouseEnter={onMouseEnter}>
-        {cropEmoji && <span className="plot-crop-badge">{cropEmoji}</span>}
+        {cropEmoji && showCropIcon && <span className="plot-crop-badge">{cropEmoji}</span>}
         <span className="plot-bar"><span className="plot-bar-fill" style={{ width: `${progress * 100}%` }} /></span>
       </div>
     );
@@ -1865,7 +1874,7 @@ function Plot({ plot, cost, money, growTime, seedCost, seedEmoji, preview, flash
       onClick={onClick}
       onMouseEnter={onMouseEnter}
     >
-      {cropEmoji && <span className="plot-crop-badge">{cropEmoji}</span>}
+      {cropEmoji && showCropIcon && <span className="plot-crop-badge">{cropEmoji}</span>}
     </div>
   );
 }
@@ -2011,7 +2020,7 @@ function RadioWidget() {
 
   return (
     <div className="radio-widget" onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
-      <audio ref={audioRef} preload="auto" onEnded={() => setTrackIdx((i) => (i + 1) % RADIO_TRACK_NAMES.length)} />
+      <audio ref={audioRef} preload="none" onEnded={() => setTrackIdx((i) => (i + 1) % RADIO_TRACK_NAMES.length)} />
       <button className="radio-mini" onClick={() => setOn((v) => !v)} title={on ? 'Éteindre la radio' : 'Allumer la radio'}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/sprites/radio-mini.webp" alt="Radio" />
