@@ -1777,6 +1777,19 @@ function Game({ username, onLoggedOut }) {
               ))}
             </ul>
             <button className="full-btn" onClick={refreshLeaderboard}>Actualiser le Classement des Stakhanovistes du District</button>
+            {leaderboard.length > 0 && (
+              <div className="champion-block">
+                <img
+                  src="/sprites/stakhanoviste-poster.webp"
+                  alt="Affiche du Stakhanoviste du District"
+                  className="champion-poster"
+                />
+                <div className="champion-caption">
+                  <span className="champion-name">{leaderboard[0].username}</span>
+                  <span className="champion-title">Champion du Peuple — Aucun répit pour le sous-producteur !</span>
+                </div>
+              </div>
+            )}
           </Section>
         </div>
       </div>
