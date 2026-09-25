@@ -351,6 +351,39 @@ input{
   transform:scale(0.96);
   filter:brightness(1.2);
 }
+.champion-block{
+  margin-top:16px;
+  padding-top:16px;
+  border-top:1px solid var(--paper-line);
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+}
+.champion-poster{
+  width:100%; max-width:280px;
+  border-radius:2px;
+  box-shadow:0 6px 16px rgba(0,0,0,0.35);
+  border:3px solid var(--ink);
+  outline:1px solid var(--paper-line);
+  outline-offset:-4px;
+}
+.champion-caption{
+  margin-top:10px;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+}
+.champion-name{
+  font-family:'Stalinist One','Courier New',monospace;
+  font-size:1.1rem;
+  color:var(--alert);
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+}
+.champion-title{
+  font-family:'Courier New',monospace;
+  font-weight:700;
+  font-size:0.78rem;
+  color:var(--ink-soft);
+  max-width:280px;
+  line-height:1.35;
+}
 .propaganda-btn-main{
   font-size:0.92rem; letter-spacing:0.045em; line-height:1.5; margin-bottom:10px;
 }
